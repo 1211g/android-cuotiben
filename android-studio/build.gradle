@@ -1,0 +1,18 @@
+// Top-level build file.
+// AGP is placed on the buildscript classpath here so that :app can use
+// "plugins { id 'com.android.application' }" without a version and the
+// plugin resolves from the local Gradle cache in --offline mode.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.2'
+    }
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.buildDir
+}

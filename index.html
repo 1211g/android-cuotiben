@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>错题本</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/glass.css">
+</head>
+<body class="theme-dark">
+
+<!-- ambient light blobs: the "content behind the glass" -->
+<div class="ambient" aria-hidden="true">
+  <span class="blob blob-a"></span>
+  <span class="blob blob-b"></span>
+  <span class="blob blob-c"></span>
+  <span class="blob blob-d"></span>
+  <span class="noise"></span>
+</div>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 20h18M6 20v-6M11 20V7M16 20v-9M21 20V4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 8h3l1.8-3h8.4L18 8h3v11H3z"/><circle cx="12" cy="13.5" r="3.4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.6" cy="8.6" r="1.6"/><path d="m21 15-5-5L5 21"/></symbol>
+  <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 6V4h16v2M12 4v16M9 20h6"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2.6 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12.5 5 5L20 6.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16v4zM14 6l4 4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 11.5V4a1 1 0 0 1 1-1h7.5L21 12.5 12.5 21z"/><circle cx="7.5" cy="7.5" r="1.2"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-2V5zM8 3v18"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M4 20h16"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M4 20h16"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4 7h16M4 12h11M4 17h6M17 12l3 3-3 3"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h9a7 7 0 0 1 0 14H8"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M9 14h6M9 17h4"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2 6M20 5v6h-6"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.7 2.7L16 9"/></symbol>
+  <symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 2 1.7 4.8L18.5 8.5l-4.8 1.7L12 15l-1.7-4.8L5.5 8.5l4.8-1.7zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-brightness" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></symbol>
+  <symbol id="i-broom" viewBox="0 0 24 24"><path d="M14 3 9 8M7 10l7 7-4 4H3l4-4zM13 12l4-4 4 4-4 4"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 16 5-5 4 4 8-8M15 7h5v5"/></symbol>
+  <symbol id="i-pie" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></symbol>
+  <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+</svg>
+
+<div id="device">
+  <div id="app">
+
+    <main id="views">
+
+      <!-- ================= HOME / LIST ================= -->
+      <section class="view active" id="view-home">
+        <header class="topbar">
+          <div class="topbar-txt">
+            <span class="eyebrow" id="greeting">我的学习空间</span>
+            <h1>错题本<span class="dot">.</span></h1>
+          </div>
+          <div class="topbar-acts">
+            <button class="icon-btn" id="btnPdf" aria-label="查看 PDF" title="查看 PDF"><svg class="icon"><use href="#i-pdf"/></svg></button>
+            <button class="icon-btn" id="btnTheme" aria-label="切换主题"><svg class="icon"><use href="#i-moon"/></svg></button>
+          </div>
+        </header>
+
+        <div class="home-tools">
+          <div class="glass searchbar">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <input id="searchInput" type="search" placeholder="搜索题干、解析、错因…" autocomplete="off">
+            <button class="search-clear" id="searchClear" aria-label="清空"><svg class="icon"><use href="#i-x"/></svg></button>
+          </div>
+          <button class="icon-btn" id="btnBatch" aria-label="批量导入错题" title="批量导入"><svg class="icon"><use href="#i-upload"/></svg></button>
+          <button class="icon-btn filter-btn" id="btnFilter" aria-label="筛选"><svg class="icon"><use href="#i-filter"/></svg><span class="badge" id="filterBadge" hidden>0</span></button>
+        </div>
+
+        <div class="chip-row" id="activeFilterChips"></div>
+
+        <div class="list-meta">
+          <span id="listCount">全部错题</span>
+          <button class="text-btn" id="btnSort"><svg class="icon"><use href="#i-sort"/></svg><span id="sortLabel">最新录入</span></button>
+        </div>
+
+        <div class="scroll" id="homeScroll">
+          <div id="listBody" class="card-list"></div>
+          <div class="scroll-pad"></div>
+        </div>
+      </section>
+
+      <!-- ================= STATS ================= -->
+      <section class="view" id="view-stats">
+        <header class="topbar">
+          <div class="topbar-txt"><span class="eyebrow">数据回顾</span><h1>统计<span class="dot">.</span></h1></div>
+          <div class="hdr-spacer"></div>
+        </header>
+        <div class="scroll" id="statsScroll">
+          <div id="statsBody"></div>
+          <div class="scroll-pad"></div>
+        </div>
+      </section>
+
+      <!-- ================= MANAGE ================= -->
+      <section class="view" id="view-manage">
+        <header class="topbar">
+          <div class="topbar-txt"><span class="eyebrow">分类维护</span><h1>管理<span class="dot">.</span></h1></div>
+          <div class="hdr-spacer"></div>
+        </header>
+        <div class="scroll" id="manageScroll">
+          <div id="manageBody"></div>
+          <div class="scroll-pad"></div>
+        </div>
+      </section>
+
+      <!-- ================= SETTINGS ================= -->
+      <section class="view" id="view-settings">
+        <header class="topbar">
+          <div class="topbar-txt"><span class="eyebrow">偏好与数据</span><h1>设置<span class="dot">.</span></h1></div>
+          <div class="hdr-spacer"></div>
+        </header>
+        <div class="scroll" id="settingsScroll">
+          <div id="settingsBody"></div>
+          <div class="scroll-pad"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= TAB BAR ================= -->
+    <nav class="tabbar" id="tabbar">
+      <div class="tabbar-glass"></div>
+      <button class="tab active" data-view="home"><svg class="icon"><use href="#i-list"/></svg><span>错题</span></button>
+      <button class="tab" data-view="stats"><svg class="icon"><use href="#i-chart"/></svg><span>统计</span></button>
+      <div class="fab-slot"><button class="fab" id="btnAdd" aria-label="录入错题"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+      <button class="tab" data-view="manage"><svg class="icon"><use href="#i-layers"/></svg><span>管理</span></button>
+      <button class="tab" data-view="settings"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span></button>
+    </nav>
+
+    <input type="file" id="pdfFileInput" accept=".pdf,application/pdf" hidden>
+
+    <div id="overlayRoot"></div>
+    <div id="toastRoot"></div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/db.js"></script>
+<script src="js/vision.js"></script>
+<script src="js/batch.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

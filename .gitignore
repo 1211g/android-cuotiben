@@ -1,0 +1,22 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Regenerable build outputs (keep only the two deliverable APKs at repo root)
+android/build/
+android-studio/build/
+android-studio/.gradle/
+android-studio/.idea/
+android-studio/local.properties
+android/assets/www/
+
+# Signing material & redundant copies (do not publish private key / duplicate APK)
+android/cuotiben.jks
+*.idsig
+错题本-v1.0.0.apk
+
+# One-off verification / temp artifacts
+_*.py
+_*.png
+_*.json
+_*/

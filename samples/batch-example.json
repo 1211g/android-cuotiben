@@ -1,0 +1,50 @@
+{
+  "format": "cuotiben-batch",
+  "version": 1,
+  "generatedAt": "2026-11-16T01:50:00+08:00",
+  "source": "example-generator",
+  "questions": [
+    {
+      "externalId": "math-2026-11-16-001",
+      "stem": "已知二次函数 f(x)=x²-2x+3，求其在区间 [0,3] 上的最小值。",
+      "options": { "A": "1", "B": "2", "C": "3", "D": "4" },
+      "correctAnswer": "B",
+      "myAnswer": "A",
+      "cause": "审题粗心",
+      "causeExtra": "漏看了区间限制",
+      "analysis": "配方得 f(x)=(x-1)²+2，顶点 x=1 在区间内，最小值为 2。",
+      "subject": "数学",
+      "qtype": "单选",
+      "difficulty": 3,
+      "mastery": "unmastered",
+      "tags": ["月考", "压轴题"],
+      "notes": ["老师补充：闭区间最值要同时比较驻点与端点"],
+      "createdAt": "2026-11-16T01:50:00+08:00",
+      "updatedAt": "2026-11-16T01:50:00+08:00",
+      "images": []
+    },
+    {
+      "externalId": "eng-2026-11-16-002",
+      "stem": "The manager suggested that the meeting ____ until next Friday.",
+      "correctAnswer": "B",
+      "analysis": "suggest 表示建议时，宾语从句用 (should) + 动词原形。",
+      "subject": "英语",
+      "mastery": "fuzzy"
+    },
+    {
+      "externalId": "phy-2026-11-16-003",
+      "题干": "一物体从静止开始做匀加速直线运动，第 3 秒内位移为 5m，求加速度 a。",
+      "科目": "物理",
+      "题型": "填空",
+      "难度": 5,
+      "掌握状态": "已掌握",
+      "标签": "期中|高频错题",
+      "错因": "概念混淆",
+      "解析": "第 3 秒内位移 = 前 3 秒位移 − 前 2 秒位移 = 2.5a = 5，故 a = 2 m/s²。",
+      "notes": [
+        { "text": "二刷仍错，重点看", "createdAt": "2026-11-16T01:50:00+08:00" }
+      ],
+      "images": []
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+// Settings for the Cuotiben Android Studio project.
+// Repositories are declared here and in the root build.gradle so that both
+// --offline (local Gradle cache) and online resolution work.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'Cuotiben'
+include ':app'

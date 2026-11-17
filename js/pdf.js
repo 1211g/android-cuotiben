@@ -1,0 +1,115 @@
+/* ============================================================
+   pdf.js — offline PDF import + viewing, powered by Mozilla pdf.js
+   All files stay on this device. No network calls.
+   Exposes window.Pdf
+   ============================================================ */
+(function (global) {
+  'use strict';
+
+  const PDF_BASE = new URL('pdf/', document.baseURI).href.replace(/\/$/, '');
+  const MAX_PDF_BYTES = 60 * 1024 * 1024; // 60MB guard
+
+  let _libP = null;
+  function ensureLib() {
+    if (global.pdfjsLib) return Promise.resolve(global.pdfjsLib);
+    if (_libP) return _libP;
+    _libP = new Promise((resolve, reject) => {
+      if (!document.querySelector('script[data-pdfjs]')) {
+        const s = document.createElement('script');
+        s.src = PDF_BASE + '/pdf.min.js';
+        s.setAttribute('data-pdfjs', '1');
+        s.onload = () => {
+          if (!global.pdfjsLib) { reject(new Error('pdf.js 加载失败')); return; }
+          global.pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_BASE + '/pdf.worker.min.js';
+          resolve(global.pdfjsLib);
+        };
+        s.onerror = () => reject(new Error('无法加载 PDF 渲染引擎'));
+        document.head.appendChild(s);
+      } else {
+        const wait = setInterval(() => {
+          if (global.pdfjsLib) {
+            clearInterval(wait);
+            global.pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_BASE + '/pdf.worker.min.js';
+            resolve(global.pdfjsLib);
+          }
+        }, 80);
+        setTimeout(() => { clearInterval(wait); reject(new Error('PDF 引擎加载超时')); }, 15000);
+      }
+    });
+    return _libP;
+  }
+
+  function slug(name) {
+    return String(name || 'document').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+  }
+
+  /* Import a File/Blob into IndexedDB. Returns the stored pdf record. */
+  async function importFile(file) {
+    if (!file) throw new Error('未选择文件');
+    if (!/\.pdf$/i.test(file.name || '') && file.type !== 'application/pdf') {
+      throw new Error('请选择 PDF 文件');
+    }
+    if (file.size > MAX_PDF_BYTES) throw new Error('PDF 太大（上限 60MB）');
+    const buf = await file.arrayBuffer();
+    // verify it is really a PDF (magic header %PDF-)
+    const head = new Uint8Array(buf.slice(0, 5));
+    const isPdf = head.length === 5 && head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46 && head[4] === 0x2d;
+    if (!isPdf) throw new Error('文件不是有效的 PDF');
+    const rec = {
+      id: (global.U && U.uid('pdf')) || ('pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
+      name: slug(file.name || '未命名.pdf'),
+      data: buf,
+      size: file.size,
+      createdAt: Date.now()
+    };
+    await DB.putPdf(rec);
+    return rec;
+  }
+
+  /* Load a stored record into a pdf.js doc. Accepts a record or its id. */
+  async function loadDoc(recOrId) {
+    const rec = typeof recOrId === 'string' ? await DB.getPdf(recOrId) : recOrId;
+    if (!rec) throw new Error('PDF 不存在');
+    const lib = await ensureLib();
+    const data = rec.data instanceof ArrayBuffer ? rec.data.slice(0) : new Uint8Array(rec.data).buffer;
+    const task = lib.getDocument({
+      data: data,
+      cMapUrl: PDF_BASE + '/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: PDF_BASE + '/standard_fonts/',
+      useSystemFonts: false,
+      disableFontFace: false
+    });
+    return await task.promise;
+  }
+
+  /* Render one page to a canvas at a given scale. Returns {viewport, numPages}. */
+  async function renderPage(doc, pageNo, canvas, scale) {
+    const page = await doc.getPage(pageNo);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: scale || 1.4 });
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const dpr = Math.min(2, global.devicePixelRatio || 1);
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width = Math.floor(viewport.width) + 'px';
+    canvas.style.height = Math.floor(viewport.height) + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, viewport.width, viewport.height);
+    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    return { width: base.width, height: base.height, numPages: doc.numPages };
+  }
+
+  function checkResources() {
+    const files = ['pdf.min.js', 'pdf.worker.min.js'];
+    return Promise.all(files.map(async f => {
+      try {
+        const r = await fetch(PDF_BASE + '/' + f, { method: 'HEAD' });
+        return { f, ok: r.ok };
+      } catch (e) { return { f, ok: false }; }
+    }));
+  }
+
+  global.Pdf = { ensureLib, importFile, loadDoc, renderPage, checkResources, PDF_BASE, MAX_PDF_BYTES };
+})(window);

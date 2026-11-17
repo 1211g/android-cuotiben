@@ -1,0 +1,117 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The hand-built shell sources live in cuotiben-app/android/, which is a
+// SIBLING of this android-studio/ project. Everything below is resolved from
+// the ROOT project directory (android-studio/), so "../android" correctly
+// means cuotiben-app/android. Resolving plain file('../android/...') inside
+// this app/ script would instead point at android-studio/android (wrong).
+def legacyAndroid = rootProject.file('../android')
+def webRoot = rootProject.file('..')
+def webAssets = rootProject.file('../android/build/assets/www')
+
+android {
+    namespace 'com.cuotiben.app'
+    compileSdk 34
+
+    // aapt2 automatically gunzips *.gz assets and strips the ".gz" suffix,
+    // so the APK ends up with bare <lang>.traineddata blobs. The web app now
+    // auto-detects this (langGzip() in js/vision.js) and falls back to
+    // gzip:false + .traineddata inside the native WebView shell. aapt2 also
+    // deflates large wasm / traineddata blobs, and AssetManager.open() cannot
+    // inflate a compressed asset over ~1 MB (UNCOMPRESS_DATA_MAX). Listing
+    // these extensions in noCompress keeps every >1 MB blob STORED.
+    androidResources {
+        noCompress += ['wasm', 'gz', 'js', 'txt', 'traineddata', 'woff2']
+    }
+
+    defaultConfig {
+        applicationId 'com.cuotiben.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        // Optional release keystore produced by build_apk.py. The exists()
+        // guard keeps configuration working when the keystore is absent.
+        def releaseStore = rootProject.file('../android/android/cuotiben.jks')
+        if (releaseStore.exists()) {
+            release {
+                storeFile releaseStore
+                storePassword 'cuotiben123'
+                keyAlias 'cuotiben'
+                keyPassword 'cuotiben123'
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Uses the platform default debug keystore.
+        }
+        release {
+            minifyEnabled false
+            def releaseSigning = signingConfigs.findByName('release')
+            if (releaseSigning != null) {
+                signingConfig releaseSigning
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile new File(legacyAndroid, 'AndroidManifest.xml')
+            java.srcDirs = [new File(legacyAndroid, 'java')]
+            res.srcDirs = [new File(legacyAndroid, 'res')]
+            assets.srcDirs = [new File(legacyAndroid, 'build/assets')]
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// Refresh the WebView assets before every build so "Run" always ships the
+// latest web files. Sync (not Copy) also removes stale files left behind by
+// the concurrently-run build_apk.py, so the APK always contains exactly the
+// source set (23 files, including the two OCR traineddata blobs).
+// It is binary-safe: the ~18 MB of OCR wasm / traineddata blobs are copied
+// byte-for-byte. Always re-run: build_apk.py can overwrite this output dir
+// externally, which Gradle's input snapshot would otherwise not notice.
+def syncWebAssetsTask = tasks.register('syncWebAssets', Sync) {
+    outputs.upToDateWhen { false }
+    from(webRoot) {
+        include 'index.html'
+        include 'manifest.json'
+        include 'sw.js'
+        include 'css/**'
+        include 'js/**'
+        include 'icons/**'
+        include 'ocr/**'
+        include 'pdf/**'
+        exclude '**/*.map'
+        exclude 'android/**'
+        exclude 'android-studio/**'
+    }
+    into webAssets
+}
+
+// preBuild is the AGP anchor; the asset tasks are declared explicitly so
+// Gradle's implicit-dependency validation does not complain about the Sync
+// task writing into the assets source directory.
+tasks.matching {
+    it.name == 'preBuild' ||
+        (it.name.startsWith('merge') && it.name.endsWith('Assets')) ||
+        (it.name.startsWith('compress') && it.name.endsWith('Assets'))
+}.configureEach {
+    dependsOn syncWebAssetsTask
+}
