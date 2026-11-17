@@ -732,12 +732,20 @@ input[type=range]::-webkit-slider-thumb{ appearance: none; width: 18px; height: 
 .pdf-hint{ font-size: 11px; color: var(--text-3); opacity: .85; white-space: nowrap; }
 .pdf-scroll{
   flex: 1; min-height: 0; overflow: auto; padding: 10px 8px 22px;
-  background: #20242e; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y;
+  /* 阅读区底板融入 app 主题：与主背景同色系 + 光斑呼应首页 liquid-glass 氛围 */
+  background: var(--bg); /* fallback for engines without color-mix() */
+  background:
+    radial-gradient(95% 60% at 6% 0%, color-mix(in srgb, var(--blob1) 30%, transparent), transparent 72%),
+    radial-gradient(85% 55% at 100% 10%, color-mix(in srgb, var(--blob2) 26%, transparent), transparent 70%),
+    radial-gradient(100% 65% at 50% 100%, color-mix(in srgb, var(--blob3) 22%, transparent), transparent 78%),
+    var(--bg);
+  -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y;
+  transition: background .5s var(--ease-soft);
 }
 .pdf-pages{ display: flex; flex-direction: column; align-items: center; gap: 10px; transform-origin: top center; }
 .pdf-page{
   flex: none; background: #fff; border-radius: 3px; overflow: hidden;
-  box-shadow: 0 6px 22px rgba(0,0,0,.4);
+  box-shadow: var(--shadow-sm);
 }
 .pdf-page canvas{ display: block; background: #fff; }
 .pdf-controls{
