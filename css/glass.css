@@ -723,7 +723,8 @@ input[type=range]::-webkit-slider-thumb{ appearance: none; width: 18px; height: 
 
 .pdf-viewer{ padding-top: env(safe-area-inset-top); display: flex; flex-direction: column; }
 .pdf-viewer .sheet-head{ flex: none; padding: 0 0 6px; border-bottom: 1px solid var(--stroke); }
-.pdf-page-label, .pdf-zoom-label{ font-size: 12px; font-weight: 650; color: var(--text-2); min-width: 44px; text-align: center; }
+.pdf-page-label{ font-size: 12px; font-weight: 650; color: var(--text-2); min-width: 44px; text-align: center; }
+.pdf-hint{ font-size: 11px; color: var(--text-3); opacity: .85; white-space: nowrap; }
 .pdf-canvas-wrap{
   flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center;
   padding: 14px; background: #20242e; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y;

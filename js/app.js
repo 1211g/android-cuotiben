@@ -1780,40 +1780,113 @@
       '<div class="pdf-canvas-wrap" id="pvWrap"><canvas id="pvCanvas"></canvas></div>' +
       '<div class="pdf-controls">' +
       '<button class="icon-btn" id="pvPrev" aria-label="上一页">' + icon('chev-left') + '</button>' +
-      '<button class="btn btn-ghost btn-sm" id="pvZoomOut">−</button>' +
-      '<span class="pdf-zoom-label" id="pvZoom">140%</span>' +
-      '<button class="btn btn-ghost btn-sm" id="pvZoomIn">+</button>' +
+      '<span class="pdf-hint">双指缩放 · 单指拖动 · 双击复位</span>' +
       '<button class="icon-btn" id="pvNext" aria-label="下一页">' + icon('chev-right') + '</button>' +
       '</div></div>', 'bottom', true);
 
-    let page = 1, scale = 1.4, rendering = false;
+    const wrap = $('#pvWrap', ov);
     const canvas = $('#pvCanvas', ov);
     const label = $('#pvLabel', ov);
-    const zoomLbl = $('#pvZoom', ov);
+    let page = 1;
+    let fitScale = 1;     // scale that fits the whole page inside the viewport
+    let zoom = 1;         // user multiplier on top of fitScale (pinch / dbl-tap)
+    let renderedScale = 0;// scale the canvas bitmap was actually rendered at
+    let rendering = false, queued = false, destroyed = false;
+
+    // Compute the fit scale for the current page + current viewport size.
+    async function computeFit() {
+      try {
+        const sz = await Pdf.getPageSize(doc, page);
+        const availW = Math.max(80, wrap.clientWidth - 24);
+        const availH = Math.max(80, wrap.clientHeight - 24);
+        fitScale = Math.min(availW / sz.width, availH / sz.height);
+      } catch (e) { fitScale = 1; }
+    }
+
+    // Render the page at fitScale * zoom (sharp), then clear the preview transform.
     async function draw() {
-      if (rendering) return;
+      if (rendering) { queued = true; return; }
       rendering = true;
       try {
-        await Pdf.renderPage(doc, page, canvas, scale);
+        await computeFit();
+        const target = fitScale * zoom;
+        await Pdf.renderPage(doc, page, canvas, target);
+        renderedScale = target;
+        canvas.style.transform = '';
         label.textContent = page + ' / ' + total;
-        zoomLbl.textContent = Math.round(scale * 100) + '%';
       } catch (e) { toast('渲染失败：' + (e.message || '未知错误'), 'err'); }
       rendering = false;
+      if (queued && !destroyed) { queued = false; draw(); }
     }
+
+    // Instant visual feedback during pinch: scale the existing bitmap via CSS.
+    function preview() {
+      if (!renderedScale) return;
+      const f = (fitScale * zoom) / renderedScale;
+      canvas.style.transformOrigin = 'center center';
+      canvas.style.transform = Math.abs(f - 1) < 0.005 ? '' : 'scale(' + f + ')';
+    }
+
     draw();
-    $('#pvClose', ov).onclick = () => { closeOverlay(ov); try { doc.destroy(); } catch (e) { } };
-    $('.overlay-mask', ov).onclick = () => { closeOverlay(ov); try { doc.destroy(); } catch (e) { } };
-    $('#pvPrev', ov).onclick = () => { if (page > 1) { page--; draw(); } };
-    $('#pvNext', ov).onclick = () => { if (page < total) { page++; draw(); } };
-    $('#pvZoomIn', ov).onclick = () => { scale = Math.min(3, scale + 0.2); draw(); };
-    $('#pvZoomOut', ov).onclick = () => { scale = Math.max(0.6, scale - 0.2); draw(); };
-    // pinch / wheel zoom
-    $('#pvWrap', ov).addEventListener('wheel', e => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      scale = Math.max(0.6, Math.min(3, scale + (e.deltaY < 0 ? 0.15 : -0.15)));
+
+    const close = () => {
+      destroyed = true;
+      window.removeEventListener('resize', onResize);
+      closeOverlay(ov);
+      try { doc.destroy(); } catch (e) { }
+    };
+    $('#pvClose', ov).onclick = close;
+    $('.overlay-mask', ov).onclick = close;
+    const goto = n => {
+      if (n < 1 || n > total) return;
+      page = n; zoom = 1; wrap.scrollTop = 0; wrap.scrollLeft = 0;
       draw();
+    };
+    $('#pvPrev', ov).onclick = () => goto(page - 1);
+    $('#pvNext', ov).onclick = () => goto(page + 1);
+
+    // --- two-finger pinch to zoom (single finger = native scroll/pan) ---
+    const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    let pinchDist = 0;
+    wrap.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) pinchDist = dist(e.touches);
+    }, { passive: true });
+    wrap.addEventListener('touchmove', e => {
+      if (e.touches.length === 2 && pinchDist) {
+        e.preventDefault();
+        const d = dist(e.touches);
+        zoom = Math.max(1, Math.min(6, zoom * d / pinchDist));
+        pinchDist = d;
+        preview();
+      }
     }, { passive: false });
+    wrap.addEventListener('touchend', e => {
+      if (e.touches.length < 2 && pinchDist) { pinchDist = 0; if (!destroyed) draw(); }
+    }, { passive: true });
+    wrap.addEventListener('touchcancel', () => { pinchDist = 0; }, { passive: true });
+
+    // --- double tap to reset zoom (tap on canvas / wrap) ---
+    let lastTap = 0;
+    wrap.addEventListener('touchend', e => {
+      if (e.touches.length || !e.changedTouches.length) return;
+      const now = Date.now();
+      if (now - lastTap < 320) { zoom = 1; if (!destroyed) draw(); }
+      lastTap = now;
+    }, { passive: true });
+
+    // --- desktop: ctrl/cmd + wheel to zoom, plain wheel scrolls natively ---
+    wrap.addEventListener('wheel', e => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoom = Math.max(1, Math.min(6, zoom + (e.deltaY < 0 ? 0.2 : -0.2)));
+      if (!destroyed) draw();
+    }, { passive: false });
+
+    // --- re-fit on orientation / resize (debounced) ---
+    let rzT;
+    const onResize = () => { clearTimeout(rzT); rzT = setTimeout(() => { if (!destroyed) { zoom = 1; draw(); } }, 200); };
+    window.addEventListener('resize', onResize);
+
     ov.dataset.pdfViewer = '1';
   }
 

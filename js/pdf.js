@@ -101,6 +101,13 @@
     return { width: base.width, height: base.height, numPages: doc.numPages };
   }
 
+  /* Return the intrinsic page size at scale 1 (used for fit-to-container). */
+  async function getPageSize(doc, pageNo) {
+    const page = await doc.getPage(pageNo);
+    const vp = page.getViewport({ scale: 1 });
+    return { width: vp.width, height: vp.height };
+  }
+
   function checkResources() {
     const files = ['pdf.min.js', 'pdf.worker.min.js'];
     return Promise.all(files.map(async f => {
@@ -111,5 +118,5 @@
     }));
   }
 
-  global.Pdf = { ensureLib, importFile, loadDoc, renderPage, checkResources, PDF_BASE, MAX_PDF_BYTES };
+  global.Pdf = { ensureLib, importFile, loadDoc, renderPage, getPageSize, checkResources, PDF_BASE, MAX_PDF_BYTES };
 })(window);
