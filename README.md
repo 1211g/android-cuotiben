@@ -45,7 +45,7 @@ python -m http.server 8777 --bind 127.0.0.1
 | **2.7 设置** | 深浅色切换、**备份目录（点「修改」直接弹输入框，改动即时写库并刷新显示；早期优先调用 `showDirectoryPicker` 在 WebView 里静默失效、表现为「点击无效」，本轮已移除该分支）**、只清理**未被引用**的残留图片、数据占用空间（额外显示 PDF 份数）、关于「个人自用版 · v1.0.0 · chen5」；**设置页的「批量导入错题」按钮已按要求移除** |
 | **非功能** | 图片压缩长边 1600 / 缩略图 320 分开缓存（WebP，JPEG 兜底；白底图形走无损 PNG）；**全屏弹层（详情/编辑器）顶部按 `env(safe-area-inset-top)` 避让状态栏，不再与系统栏重叠**；OCR 引擎、中文/英文词库、wasm、KaTeX CSS/JS/字体全部随包内置，**没有任何网络请求**；Android 8.0+；竖屏 + 刘海安全区（`env(safe-area-inset-*)`）；系统相机/相册接口；动态权限；**事务写入**（图片与文字同事务，失败不留半写）；删除撤销入口；备份包与数据库都记录 schema / dbVersion；无埋点广告 |
 | **扩展** | 批量导入题目清单（JSON / CSV / JSONL / **ZIP 包**）：externalId 幂等、三种重复策略、解析预览、单事务写入与撤销；**ZIP 包 = `data.json` + `images/` 图片目录，导入时把题目 `images` 字段的相对路径自动替换成图片数据**；入口在首页加号 →「批量导入错题」（设置页入口已按要求移除），格式规范见第九节 |
-| **PDF 资料（本轮新增）** | 首页顶栏深浅色按钮旁新增「查看 PDF」入口 → PDF 资料库（按导入时间倒序、删除二次确认）；首页加号第三个选项「导入 PDF」把文件以 `ArrayBuffer` 存进 IndexedDB 的 `pdfs` store；查看器用随包内置的 **PDF.js 3.11.174** 离线渲染，页面**自适应容器大小**整页显示，支持**双指缩放 / 单指拖动 / 双击复位**、翻页、横竖屏切换自动重新适配（桌面端 Ctrl+滚轮缩放）；设置「数据占用空间」额外显示 PDF 份数。详见第十节 |
+| **PDF 资料（本轮新增）** | 首页顶栏深浅色按钮旁新增「查看 PDF」入口 → PDF 资料库（按导入时间倒序、删除二次确认）；首页加号第三个选项「导入 PDF」把文件以 `ArrayBuffer` 存进 IndexedDB 的 `pdfs` store；查看器用随包内置的 **PDF.js 3.11.174** 离线渲染，采用**连续滚动**阅读（所有页垂直堆叠、页间留缝、按宽度自适应，向下滑直接跨页，如 WPS / QQ 浏览器效果）；顶部「1 / N」可点开跳转页码、上/下一页按钮切页；支持**双指缩放 / 单指拖动 / 双击复位**、懒渲染（仅渲染视口附近页）、横竖屏切换自动重新适配（桌面端 Ctrl+滚轮缩放）；设置「数据占用空间」额外显示 PDF 份数。详见第十节 |
 
 > 需求中的风险项「纯图片题不可搜索」已处理：收录时提示补一句文字题干，卡片用文字题干首行做缩略图，全文检索才有内容可命中。
 
@@ -193,7 +193,7 @@ Tesseract 只输出字符与 bbox，不输出上下标/分式结构。`vision.js
 - **词库名自适应**：手工 `aapt2` 打包保留 `*.traineddata.gz`；Android Studio / AGP 的 aapt2 会把 `.gz` 解压并去掉后缀，变成 `*.traineddata`。`vision.js` 在原生 WebView 里先 HEAD 探测一次，自动选择 `gzip: true / false` 与对应文件名；浏览器 / PWA 固定用 `.gz`。两套包都能加载词库。
 - **纯白背景算法**：32px 分块估计纸面背景亮度（暗底取 15 分位，亮底取 85 分位）→ 3×3 平滑后双线性插值成背景图 → 按相对亮度 `g/B` 与彩色饱和度提取墨迹（彩色像素必须同时够暗，避免泛黄纸面被留成色块）→ 两轮去孤立噪点 → 非墨迹像素强制 `(255,255,255)`，墨迹按 `k=255/B` 白平衡保留原色（线稿模式压成 24–96 灰）→ 输出**无损 PNG**。缩略图/详情图也走 `lossless:true`，避免 WebP 有损压缩把纯白染成灰白。
 
-- **完全离线**：`ocr/` 目录里的引擎、wasm、词库与 KaTeX CSS/JS/字体、`pdf/` 里的 PDF.js 主库 / worker / 168 个 cmaps / 16 个标准字体全部随包内置；APK 不声明 `INTERNET` 权限，PWA 由 Service Worker（`CACHE = 'cuotiben-v15'`，预缓存前端 7 个 JS（含 `js/pdf.js`）+ 8 个 OCR 资源 + 22 个 KaTeX 资源 + `PDF_ASSETS` 的 `pdf.min.js` / `pdf.worker.min.js`；cmaps / 标准字体由 fetch handler 按需缓存）提供离线兜底，不上传任何图片或 PDF。原生壳内不注册 SW，资源直接由 `shouldInterceptRequest` 从 assets 读取。
+- **完全离线**：`ocr/` 目录里的引擎、wasm、词库与 KaTeX CSS/JS/字体、`pdf/` 里的 PDF.js 主库 / worker / 168 个 cmaps / 16 个标准字体全部随包内置；APK 不声明 `INTERNET` 权限，PWA 由 Service Worker（`CACHE = 'cuotiben-v16'`，预缓存前端 7 个 JS（含 `js/pdf.js`）+ 8 个 OCR 资源 + 22 个 KaTeX 资源 + `PDF_ASSETS` 的 `pdf.min.js` / `pdf.worker.min.js`；cmaps / 标准字体由 fetch handler 按需缓存）提供离线兜底，不上传任何图片或 PDF。原生壳内不注册 SW，资源直接由 `shouldInterceptRequest` 从 assets 读取。
 
 > Android 打包注意：`wasm / gz / js` 资源都大于 1 MB，`aapt2 link` 用 `-0 wasm -0 gz -0 js -0 txt -0 woff2` 让它们以 STORED 方式入包，否则 `AssetManager.open()` 解压大文件会触发 `UNCOMPRESS_DATA_MAX` 限制；原生层 `mimeOf()` 相应补充了 `application/wasm` / `application/gzip` / `font/woff2`。Gradle 侧因为 `.gz` 被解压改名，`androidResources.noCompress` 还要额外加 `traineddata`，同时由前端的「词库名自适应」配合。PDF 资源里只有 `pdf/pdf.worker.min.js`（1,087,212 B）超过 1 MB，其 `.js` 扩展名已被 `-0 js` / `noCompress 'js'` 覆盖为 STORED；`cmaps/*.bcmap` 与 `standard_fonts/*` 均小于 1 MB，原生 `mimeOf()` 回落到 `application/octet-stream`，PDF.js 用 `fetch(...).arrayBuffer()` 读取，无需扩充 MIME 表。
 
@@ -282,7 +282,7 @@ python build_apk.py
 
 > 本轮在 `E:\Vibecoding\ctb\cuotiben-app` 实跑 `build-apk.bat`（`apksigner verify` 通过）与 `gradle --offline assembleDebug`（`BUILD SUCCESSFUL in 11s`），两种构建方式均正常，产物见下。
 
-本次交付包校验结果：`Verifies`，v2 = true、v3 = true、Number of signers: 1，`zipalign -c 4` 通过，`sdkVersion:26`、`targetSdkVersion:34`、竖屏、`application-label:'错题本'`，包含 `classes.dex`、`resources.arsc` 与 **234 个 `assets/www/*` 文件**（`ocr/` 含 22 个 KaTeX 资源，`pdf/` 186 个 = 2 个 JS + 168 个 cmaps + 16 个标准字体）；超过 1 MB 的 `pdf/pdf.worker.min.js`（1,087,212 B）与 wasm / 词库 / glue 资源均为 STORED（bad-compressed = 0）。签名包 `cuotiben-v1.0.0.apk` 22,348 KB / 242 entries；Android Studio debug 包 `android-studio/app/build/outputs/apk/debug/app-debug.apk` 25,947,873 B / 244 entries。两包逐项校验：`js/app.js` 含 `chen5` / `openPdfLibrary` / `openPdfViewer` / `.pdf-sheet`，设置页渲染段无「批量导入错题」；`index.html` 含 `#btnPdf` 与 `js/pdf.js`；`js/pdf.js`、`pdf/pdf.min.js`、`pdf/pdf.worker.min.js` 均存在且为 STORED；`sw.js` 为 `CACHE='cuotiben-v15'` 且含 `PDF_ASSETS`；`css/glass.css` 含 PDF LIBRARY + VIEWER 样式块与 `.sheet-full` 的状态栏避让。
+本次交付包校验结果：`Verifies`，v2 = true、v3 = true、Number of signers: 1，`zipalign -c 4` 通过，`sdkVersion:26`、`targetSdkVersion:34`、竖屏、`application-label:'错题本'`，包含 `classes.dex`、`resources.arsc` 与 **234 个 `assets/www/*` 文件**（`ocr/` 含 22 个 KaTeX 资源，`pdf/` 186 个 = 2 个 JS + 168 个 cmaps + 16 个标准字体）；超过 1 MB 的 `pdf/pdf.worker.min.js`（1,087,212 B）与 wasm / 词库 / glue 资源均为 STORED（bad-compressed = 0）。签名包 `cuotiben-v1.0.0.apk` 22,348 KB / 242 entries；Android Studio debug 包 `android-studio/app/build/outputs/apk/debug/app-debug.apk` 25,947,873 B / 244 entries。两包逐项校验：`js/app.js` 含 `chen5` / `openPdfLibrary` / `openPdfViewer` / `.pdf-sheet`，设置页渲染段无「批量导入错题」；`index.html` 含 `#btnPdf` 与 `js/pdf.js`；`js/pdf.js`、`pdf/pdf.min.js`、`pdf/pdf.worker.min.js` 均存在且为 STORED；`sw.js` 为 `CACHE='cuotiben-v16'` 且含 `PDF_ASSETS`；`css/glass.css` 含 PDF LIBRARY + VIEWER 样式块与 `.sheet-full` 的状态栏避让。
 
 ### 更换应用图标
 
@@ -292,7 +292,7 @@ python build_apk.py
 python make_icons.py
 ```
 
-脚本会：按测量坐标 `CROP = (352, 346, 1698, 1702)` 裁出奶油圆角方块本体 → 居中裁方后缩放填满画幅（`cover_square`）→ 半径 `int(0.235*size)` 圆角 mask、`CREAM(250,247,236)` 填四角 → 192 / 512 PWA 图标、maskable（图形缩到中央 80% 安全区 + CREAM 底板）与 Android 五个密度的 `ic_launcher.png` 一次生成；favicon 走 `icons/icon-192.png`。改完重跑上面的 `build-apk.bat` / `build-gradle.bat` 即可。改动图标或前端资源（含 `pdf/`）时记得把 `sw.js` 的 `CACHE` 版本号 +1（当前为 cuotiben-v15），避免 PWA 缓存旧文件；同时确认 `build_apk.py` 的 `copy_web_assets()` 与 `android-studio/app/build.gradle` 的 `syncWebAssets` 都包含新增目录（本轮已为 `pdf` 补齐）。
+脚本会：按测量坐标 `CROP = (352, 346, 1698, 1702)` 裁出奶油圆角方块本体 → 居中裁方后缩放填满画幅（`cover_square`）→ 半径 `int(0.235*size)` 圆角 mask、`CREAM(250,247,236)` 填四角 → 192 / 512 PWA 图标、maskable（图形缩到中央 80% 安全区 + CREAM 底板）与 Android 五个密度的 `ic_launcher.png` 一次生成；favicon 走 `icons/icon-192.png`。改完重跑上面的 `build-apk.bat` / `build-gradle.bat` 即可。改动图标或前端资源（含 `pdf/`）时记得把 `sw.js` 的 `CACHE` 版本号 +1（当前为 cuotiben-v16），避免 PWA 缓存旧文件；同时确认 `build_apk.py` 的 `copy_web_assets()` 与 `android-studio/app/build.gradle` 的 `syncWebAssets` 都包含新增目录（本轮已为 `pdf` 补齐）。
 
 ### 模拟器实测（Android Studio AVD）
 
@@ -308,10 +308,11 @@ AVD `Medium_Phone_API_37.0` 装 `app-debug.apk` 后通过 WebView DevTools（CDP
 - **备注公式 / 长公式换行 / 封面**（浏览器 + 真机 WebView 实测）：含 `$a_2$`、`$\tan^3t\sim t^2$` 的备考备注渲染出 2–3 个 `.katex`、无残留 `$`；超长积分公式解析的 `.sheet-body` 横向溢出为 0；详情页「封面」按钮弹出「默认封面 / 导入图片作封面」选项，选默认后 `q.cover={mode:'subject'}` 且卡片缩略图变成 PNG dataURL，导入图片后变 `{mode:'image',data:...webp}`，恢复默认后 `cover=null`，编辑错题后封面保持不变。截图 `shot-formula-notes.png`、`shot-formula-notes-bottom.png`（浏览器）、`shot-3fix-emu.png`（真机封面弹层）、`shot-3fix-notes-emu.png`（真机备注公式 + 封面按钮）。
 - **4 点改造（PDF 导入 / 查看 + 设置页清理 + 备份目录修复 + 关于 chen5）**（浏览器 + 模拟器 CDP 实测）：首页顶栏 `#btnPdf`「查看 PDF」与 `#btnTheme` 同在 `.topbar-acts`（真机 x296 / x347，42×42 无重叠）；`Pdf.checkResources()` 两个 JS 均 `ok:true`；`#btnPdf` 打开 `.pdf-sheet`（表头「PDF 资料 / 导入」、空态与 `#pdfAddBtn`）；FAB 三项「直接录入错题 / 批量导入错题 / 导入 PDF」，第三项用 `#i-pdf` 图标。
 - 用 `DataTransfer` 把 599 B 的 `%PDF-1.4` 文件塞进 `#pdfFileInput` 触发 change → `DB.getAllPdfs()` 1 条、库自动刷新出 1 行「高中数学公式手册.pdf 599 B · 2026.11.17」；打开 viewer → `#pvLabel`「1 / 1」、canvas 896×560（CSS 448×280）、**像素扫描确认 6014 个墨迹像素、bbox [88,212,576,252]，`Hello Cuotiben PDF` 真实出字**；删除走「删除这份 PDF？」二次确认后回到空态。
-- 浏览器端 `caches.keys()` 只有 `cuotiben-v15`、48 entries，含 `/js/pdf.js`、`/pdf/pdf.min.js`、`/pdf/pdf.worker.min.js` 与按需缓存的 `/pdf/standard_fonts/LiberationSans-Regular.ttf`；原生壳按设计不注册 SW（`window.CuotiBridge` 存在时跳过），资源全部由 `shouldInterceptRequest` 从 APK assets 直供。
+- 浏览器端 `caches.keys()` 只有 `cuotiben-v16`、48 entries，含 `/js/pdf.js`、`/pdf/pdf.min.js`、`/pdf/pdf.worker.min.js` 与按需缓存的 `/pdf/standard_fonts/LiberationSans-Regular.ttf`；原生壳按设计不注册 SW（`window.CuotiBridge` 存在时跳过），资源全部由 `shouldInterceptRequest` 从 APK assets 直供。
 - 设置页：`/批量导入错题/` 0 次匹配；关于卡片 `个人自用版 · v1.0.0 · chen5`；「数据占用空间」显示 `0 道错题 · 0 张图片 · 1 份 PDF 599 B`；点「修改」→ `promptDialog` 标题「备份目录」→ 改为 `Download/CDP验证目录` 后 `DB.getConfig().backupDir` 与 DOM `.grow-sub` **同步更新**，再改回默认值同样生效，彻底修复早期 `showDirectoryPicker` 静默失效导致的「点击无效」。
 - 截图：`shot-pdf-home-emu.png`（真机首页顶栏多出「查看 PDF」）、`shot-pdf-library-emu.png`（PDF 资料库）、`shot-pdf-viewer-emu.png`（真机 PDF 渲染出字 + 翻页工具条）。
-- **本轮交互升级实测**（CACHE v15）：底部 `− 140% +` 缩放控件已移除（`#pvZoom/#pvZoomIn/#pvZoomOut` 均不存在），只留上一页 / 下一页；页面自适应——wrap 411×776 时 canvas 386×241 整页装入（未溢出）；CDP `Input.dispatchTouchEvent` 模拟双指张开 → canvas `transform` 由 none 变 `scale(3)`，抬手后重绘为清晰版（canvas 2322×1451、墨迹像素 46491）；双击复位、关闭按钮经修正确认生效。
+- **交互升级实测（CACHE v15）**：底部 `− 140% +` 缩放控件已移除（`#pvZoom/#pvZoomIn/#pvZoomOut` 均不存在），只留上一页 / 下一页；页面自适应——wrap 411×776 时 canvas 386×241 整页装入（未溢出）；CDP `Input.dispatchTouchEvent` 模拟双指张开 → canvas `transform` 由 none 变 `scale(3)`，抬手后重绘为清晰版（canvas 2322×1451、墨迹像素 46491）；双击复位、关闭按钮经修正确认生效。
+- **连续滚动实测（CACHE v16）**：导入 12 页 PDF → `.pdf-scroll` 纵向容器 `scrollH 3106 / clientH 776`、顶部「1 / 12」、无底部缩放控件、上下页按钮在；可见前 6 页 canvas 790×493 出字（墨迹约 75），未进入视口的页仍是 300×150 空 canvas（懒渲染符合预期）；`scrollTop` 跳到第 7 页 → 顶部变「7 / 12」（滚动切页 OK）；点顶部页码弹「跳转页面」→ 输入 2 → 顶部「2 / 12」且 `scrollTop 332`（跳页 OK）；双指 pinch `scale(2.5)` 抬手后**提交生效**（`zoom 2.5`、wrapW 395→988、canvas 1975px；此前 `slice(7,-1)` 解析 `scale(2.5)` 误得 `0.5` 的 bug 已用 `pinchFactor` 变量修复）；Ctrl+滚轮放大 wrapW 395→474→632；关闭 `doc.destroy()` 生效。
 
 ---
 
@@ -513,13 +514,13 @@ pathlib.Path("batch.json").write_text(
 - 文件以 **`ArrayBuffer`** 原样存进 IndexedDB 的 `pdfs` store（`{id, name, data, size, createdAt}`），不做转码、不上传、不写临时文件。
 - `js/pdf.js`（`window.Pdf`）负责校验：扩展名 / MIME、≤ 60 MB、`%PDF-` 魔数（`0x25 0x50 0x44 0x46 0x2d`）；文件名过 `slug()` 去掉路径分隔符，长度截断 80 字符。
 - 渲染引擎是随包内置的 **Mozilla PDF.js 3.11.174**（UMD + classic worker）：`ensureLib()` 按需注入 `pdf/pdf.min.js`，并把 `GlobalWorkerOptions.workerSrc` 指向 `pdf/pdf.worker.min.js`；`getDocument()` 额外指定 `cMapUrl: pdf/cmaps/`、`standardFontDataUrl: pdf/standard_fonts/`，因此中日韩字符与标准字体（Helvetica → LiberationSans）都能正常出字，`useSystemFonts:false` 保证不依赖系统字体、也不联网。
-- `renderPage()` 按 `min(2, devicePixelRatio)` 放大 canvas backing store、`alpha:false` 先填纯白底，再 `page.render()`；`getPageSize()` 取 scale=1 的页面原始尺寸供自适应计算。查看器打开/翻页/横竖屏切换时按 `min(availW/pageW, availH/pageH)` 计算 `fitScale` **整页适配容器**，用户 `zoom` 倍率叠加上去；交互为**双指 pinch 缩放（CSS transform 即时预览 + 抬手后按最终倍率重绘清晰版）、单指原生滚动拖动、双击复位（zoom=1）、桌面 Ctrl/⌘+滚轮缩放**，不再有底部 `− 140% +` 缩放控件，只保留上一页 / 下一页；关闭时 `doc.destroy()` 并移除 resize 监听。
+- `renderPage()` 按 `min(2, devicePixelRatio)` 放大 canvas backing store、`alpha:false` 先填纯白底，再 `page.render()`；`getPageSize()` 取 scale=1 的页面原始尺寸供自适应计算。查看器改为**连续滚动布局**：`.pdf-scroll` 纵向滚动容器内 `.pdf-pages` 把所有页垂直堆叠（`.pdf-page` 白底、页间 10px 缝、宽度自适应容器），每页按 `pageWidth()*zoom/sizes[p].width` 单独渲染；`renderVisible()` 只渲染视口前后约两屏内的页（懒渲染，未进入视口的页保留空 canvas），滚动时 `updateActive()` 按 `scrollTop` 更新顶部「当前页 / 总数」。顶部页码按钮点击弹 `promptDialog` 跳页，底部保留上一页 / 下一页（无底部缩放控件）。交互为**双指 pinch 缩放（touchmove 里算好 `pinchFactor`，CSS `scale()` 即时预览；touchend 用该倍率调 `applyZoom()` 重绘清晰版，不再解析 transform 字符串）、单指原生滚动跨页、双击切 1x/2x、桌面 Ctrl/⌘+滚轮缩放**；`applyZoom()` 维持滚动位置比例并 clamp 到 1–4；横竖屏切换 200ms 防抖重新适配；关闭时 `doc.destroy()` 并移除 resize 监听。
 
 ### 10.3 离线保证（两种形态）
 
 | 形态 | 资源来源 | 缓存策略 |
 | --- | --- | --- |
-| 浏览器 / PWA | 站点静态文件 | `sw.js` 的 `CACHE = 'cuotiben-v15'` 预缓存 `js/pdf.js` + `PDF_ASSETS`（`pdf/pdf.min.js`、`pdf/pdf.worker.min.js`）；168 个 cmaps 与 16 个标准字体由 fetch handler 按需写入缓存（实测 `cuotiben-v15` 共 48 entries） |
+| 浏览器 / PWA | 站点静态文件 | `sw.js` 的 `CACHE = 'cuotiben-v16'` 预缓存 `js/pdf.js` + `PDF_ASSETS`（`pdf/pdf.min.js`、`pdf/pdf.worker.min.js`）；168 个 cmaps 与 16 个标准字体由 fetch handler 按需写入缓存（实测 `cuotiben-v16` 共 48 entries） |
 | Android APK | `assets/www/pdf/**` | 原生壳不注册 SW，`shouldInterceptRequest` 把 `https://cuotiben.local/pdf/**` 直接映射到 APK assets；`build_apk.py` 与 `build.gradle` 均把 `pdf/` 纳入拷贝 / 同步 |
 
 ### 10.4 打包注意
@@ -530,7 +531,7 @@ pathlib.Path("batch.json").write_text(
 
 ### 10.5 实测记录
 
-- 浏览器：导入 593 B 的一页 PDF → 库出现 1 行 → viewer `#pvLabel`「1 / 1」、canvas 448×280、像素采样有墨迹 → 双指缩放 / 双击复位 / 翻页 → 删除二次确认后回到空态；`caches.keys()` = `cuotiben-v15`。
+- 浏览器：导入 593 B 的一页 PDF → 库出现 1 行 → viewer 顶部「1 / 1」、canvas 448×280、像素采样有墨迹 → 双指缩放 / 双击复位 / 连续滚动跨页 / 点页码跳页 → 删除二次确认后回到空态；`caches.keys()` = `cuotiben-v16`。
 - Android 模拟器（AVD `Medium_Phone_API_37.0`，Chrome/145 WebView CDP）：`location.href = https://cuotiben.local/`、`Pdf.checkResources()` 两个 JS 均 `ok:true`；导入 599 B PDF 后 `DB.getAllPdfs()` 1 条、库自动刷新；viewer canvas 896×560、扫描出 **6014 个墨迹像素、bbox [88,212,576,252]**，等于真实渲染出 `Hello Cuotiben PDF`；备份目录改 `Download/CDP验证目录` 后 DB 与 DOM 同步更新、改回默认值亦生效；设置页无「批量导入错题」、关于含 `chen5`。
 - 截图：`shot-pdf-home-emu.png`、`shot-pdf-library-emu.png`、`shot-pdf-viewer-emu.png`（`E:\Vibecoding\ctb\screenshots\`）。
 - 注意：CDP 的 `Page.captureScreenshot` 在本 WebView 上抓不到加速 2D canvas 图层，所以上述真机截图用 `adb shell screencap` 取真实帧缓冲；canvas 本身的内容用 `canvas.toDataURL()` 校验。
