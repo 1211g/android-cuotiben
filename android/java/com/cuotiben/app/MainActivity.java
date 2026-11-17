@@ -198,6 +198,17 @@ public class MainActivity extends Activity {
         return "application/octet-stream";
     }
 
+    /** Map a file extension from <input accept> to a MIME type for EXTRA_MIME_TYPES. */
+    private static String mimeForExtension(String ext) {
+        if (".pdf".equals(ext)) return "application/pdf";
+        if (".zip".equals(ext)) return "application/zip";
+        if (".json".equals(ext)) return "application/json";
+        if (".csv".equals(ext)) return "text/csv";
+        if (".txt".equals(ext)) return "text/plain";
+        if (".html".equals(ext) || ".htm".equals(ext)) return "text/html";
+        return null;
+    }
+
     /* ------------------------------------------------------------------
        Camera / album file chooser
        ------------------------------------------------------------------ */
@@ -225,34 +236,41 @@ public class MainActivity extends Activity {
         } else {
             intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            /* The <input accept> decides what the user may pick. Previously every
-               non-capture chooser was hard-coded to image/*, which made the ZIP
-               backup restore and JSON/CSV batch import unusable inside the APK. */
+            /* Build the MIME allow-list from the page's <input accept> so every
+               document type works: PDF import, ZIP backup restore, JSON/CSV
+               batch import, ... The previous branch used a hard-coded whitelist
+               that omitted application/pdf, so the native picker filtered all
+               PDFs out and "import PDF" could not select any file. */
             String[] accepts = params.getAcceptTypes();
-            boolean wantsImages = false, wantsDocuments = false;
+            boolean wantsImages = false;
+            List<String> mimes = new ArrayList<String>();
             if (accepts != null) {
                 for (String a : accepts) {
                     if (a == null) continue;
                     String t = a.trim().toLowerCase(Locale.US);
-                    if (t.contains("image")) wantsImages = true;
-                    if (t.contains("zip") || t.contains("json") || t.contains("csv")
-                            || t.contains("text") || t.startsWith(".")) wantsDocuments = true;
+                    if (t.isEmpty() || "*/*".equals(t)) continue;
+                    if (t.contains("image")) { wantsImages = true; continue; }
+                    if (t.startsWith(".")) {
+                        String mime = mimeForExtension(t);
+                        if (mime != null && !mimes.contains(mime)) mimes.add(mime);
+                    } else if (t.contains("/") && !t.endsWith("/*")
+                            && !mimes.contains(t)) {
+                        mimes.add(t);
+                    }
                 }
             }
             String title;
-            if (wantsImages && !wantsDocuments) {
+            if (wantsImages && mimes.isEmpty()) {
                 intent.setType("image/*");
                 title = "选择图片";
-            } else if (wantsDocuments) {
-                intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
-                        "application/json", "text/csv", "text/plain",
-                        "text/comma-separated-values", "application/zip",
-                        "application/octet-stream"
-                });
-                title = "选择导入文件";
             } else {
+                /* application/octet-stream is a widely honoured fallback for
+                   strict pickers that match EXTRA_MIME_TYPES exactly. */
+                if (!mimes.contains("application/octet-stream")) {
+                    mimes.add("application/octet-stream");
+                }
                 intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
                 title = "选择文件";
             }
             if (multiple) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
