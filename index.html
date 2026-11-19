@@ -12,6 +12,7 @@
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/glass.css">
+<link rel="stylesheet" href="css/novel.css">
 </head>
 <body class="theme-dark">
 
@@ -127,17 +128,21 @@
         </div>
       </section>
 
-      <!-- ================= PDF / LOCAL DOCS ================= -->
+      <!-- ================= PDF / LOCAL DOCS / NOVELS ================= -->
       <section class="view" id="view-pdf">
         <header class="topbar">
           <div class="topbar-txt"><span class="eyebrow">离线资料</span><h1>资料<span class="dot">.</span></h1></div>
-          <div class="topbar-acts">
-            <button class="icon-btn" id="btnHtmlAdd" aria-label="打开本地 HTML" title="打开本地 HTML"><svg class="icon"><use href="#i-note"/></svg></button>
-            <button class="icon-btn" id="btnPdfAdd" aria-label="导入 PDF" title="导入 PDF"><svg class="icon"><use href="#i-plus"/></svg></button>
-          </div>
+          <div class="hdr-spacer"></div>
         </header>
+        <div class="doc-tabs-wrap">
+          <div class="segmented doc-tabs" id="docTabs">
+            <button class="on" data-doctab="docs">资料</button>
+            <button data-doctab="novels">小说</button>
+          </div>
+        </div>
         <div class="scroll" id="docsScroll">
           <div id="pdfViewBody"></div>
+          <div id="novelViewBody" hidden></div>
           <div class="scroll-pad"></div>
         </div>
       </section>
@@ -179,6 +184,7 @@
 
     <input type="file" id="pdfFileInput" accept=".pdf,application/pdf" hidden>
     <input type="file" id="htmlFileInput" accept=".html,.htm,text/html" hidden>
+    <input type="file" id="txtFileInput" accept=".txt,text/plain" hidden>
 
     <div id="overlayRoot"></div>
     <div id="toastRoot"></div>
@@ -191,6 +197,7 @@
 <script src="js/vision.js"></script>
 <script src="js/batch.js"></script>
 <script src="js/pdf.js"></script>
+<script src="js/novel.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

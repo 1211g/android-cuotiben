@@ -24,7 +24,9 @@
     keepForNext: null,
     dirHandle: null,
     detailId: null,
-    coverCache: new Map()
+    coverCache: new Map(),
+    docTab: 'docs',          // 'docs' | 'novels' inside the 资料 view
+    manageTagSubject: ''     // '' = all subjects; tag list filtered by this subject in 管理
   };
 
   const MASTERY = {
@@ -1576,7 +1578,27 @@
     let html = '';
     Object.keys(CFG_META).forEach(k => {
       const meta = CFG_META[k];
-      const rows = cfg[k].map((v, i) => {
+      // Subject filter bar above the tag list (需求1: 按科目筛选标签)
+      let subjectBar = '';
+      if (k === 'tags') {
+        const subs = cfg.subjects || [];
+        const chips = subs.map(s => '<button class="tag-subject-chip' + (state.manageTagSubject === s ? ' on' : '') +
+          '" data-act="tag-subject" data-v="' + esc(s) + '">' + esc(s) + '</button>').join('');
+        subjectBar = '<div class="tag-subject-bar">' +
+          '<button class="tag-subject-chip' + (!state.manageTagSubject ? ' on' : '') + '" data-act="tag-subject" data-v="">全部科目</button>' +
+          chips + '</div>';
+      }
+      // Determine which items to show. For tags with a subject selected, only tags
+      // actually used by questions of that subject are visible (others hidden).
+      let entries = cfg[k].map((v, i) => ({ v, i }));
+      if (k === 'tags' && state.manageTagSubject) {
+        const used = new Set();
+        state.questions.forEach(q => {
+          if (q.subject === state.manageTagSubject) (q.tags || []).forEach(t => used.add(t));
+        });
+        entries = entries.filter(e => used.has(e.v));
+      }
+      const rows = entries.map(({ v, i }) => {
         const used = k === 'subjects' ? state.questions.filter(q => q.subject === v).length
           : k === 'qtypes' ? state.questions.filter(q => q.qtype === v).length
             : k === 'causes' ? state.questions.filter(q => q.cause === v).length
@@ -1590,12 +1612,16 @@
           '<button class="del" data-act="cfg-del" data-k="' + k + '" data-i="' + i + '" title="删除">' + icon('trash') + '</button>' +
           '</div></div>';
       }).join('');
+      const hiddenNote = (k === 'tags' && state.manageTagSubject)
+        ? '<div class="tiny mt8" style="padding:0 4px">当前仅显示「' + esc(state.manageTagSubject) + '」科目错题用到的标签，点「全部科目」恢复。</div>' : '';
       html += '<div class="group">' +
         '<div class="group-head">' + icon(meta.icon) + '<h3>' + meta.title + '</h3>' +
-        '<span class="cnt">' + cfg[k].length + '</span>' +
+        '<span class="cnt">' + (k === 'tags' && state.manageTagSubject ? entries.length + '/' + cfg[k].length : cfg[k].length) + '</span>' +
         '<button class="add" data-act="cfg-add" data-k="' + k + '">' + icon('plus') + ' 新增</button></div>' +
-        '<div class="glist">' + (rows || '<div class="grow"><div class="grow-main"><div class="grow-sub">暂无项目，点「新增」添加</div></div></div>') + '</div>' +
-        '<div class="tiny mt8" style="padding:0 4px">' + meta.hint + '</div>' +
+        subjectBar +
+        '<div class="glist">' + (rows || '<div class="grow"><div class="grow-main"><div class="grow-sub">' +
+          (k === 'tags' && state.manageTagSubject ? '该科目暂无错题使用任何标签' : '暂无项目，点「新增」添加') + '</div></div></div>') + '</div>' +
+        (hiddenNote || '<div class="tiny mt8" style="padding:0 4px">' + meta.hint + '</div>') +
         '</div>';
     });
     $('#manageBody').innerHTML = html;
@@ -1707,6 +1733,17 @@
     inp.click();
   }
 
+  function doPromptTxtImport() {
+    const inp = $('#txtFileInput');
+    if (!inp) { toast('TXT 导入不可用', 'err'); return; }
+    if (!globalNovel()) { toast('小说阅读器尚未加载', 'err'); return; }
+    inp.value = '';
+    inp.click();
+  }
+
+  // Novel module loads after app.js, so resolve lazily at call time.
+  function globalNovel() { return (typeof Novel !== 'undefined') ? Novel : (window.Novel || null); }
+
   async function doImportPdf(file) {
     if (!file) return;
     try {
@@ -1735,18 +1772,44 @@
     }
   }
 
+  async function doImportTxt(file) {
+    if (!file) return;
+    const NV = globalNovel();
+    if (!NV) { toast('小说阅读器尚未加载', 'err'); return; }
+    try {
+      toast('正在导入小说…', 'info');
+      const rec = await NV.importTxt(file);
+      toast('已加入书架「' + rec.name + '」', 'ok');
+      switchDocTab('novels');
+    } catch (e) {
+      toast('导入失败：' + (e.message || '未知错误'), 'err');
+    }
+  }
+
   function openPdfLibrary() {
     // Kept as an alias: the library is now the "资料" tab view rather than an overlay.
     setView('pdf');
   }
 
+  function switchDocTab(tab) {
+    state.docTab = tab === 'novels' ? 'novels' : 'docs';
+    $$('.doc-tabs button').forEach(b => b.classList.toggle('on', b.dataset.doctab === state.docTab));
+    const docsBody = $('#pdfViewBody'), novelBody = $('#novelViewBody');
+    if (docsBody) docsBody.hidden = state.docTab !== 'docs';
+    if (novelBody) novelBody.hidden = state.docTab !== 'novels';
+    renderPdfView();
+  }
+
   async function renderPdfView() {
+    // Docs and novels share one "资料" view; only render the active tab's list.
+    if (state.docTab === 'novels') { await renderNovelView(); return; }
     const host = $('#pdfViewBody');
     if (!host) return;
-    const docs = (await DB.getAllPdfs()).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const all = (await DB.getAllPdfs()).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const docs = all.filter(p => p.kind !== 'txt');
     if (!docs.length) {
       host.innerHTML = '<div class="pdf-empty">' + icon('pdf') + '<p>还没有资料</p>' +
-        '<span>点顶部「＋」导入 PDF 学习资料，或点「文档」图标打开本地 HTML 文件，随时离线查看。</span></div>';
+        '<span>点首页「＋」→「导入资料」添加 PDF 或本地 HTML，随时离线查看。</span></div>';
       return;
     }
     host.innerHTML = '<div class="pdf-list">' + docs.map(p => {
@@ -1756,6 +1819,37 @@
         '<div class="pdf-meta"><div class="pdf-name">' + esc(p.name) + '</div>' +
         '<div class="pdf-sub">' + (isHtml ? 'HTML 文档' : 'PDF 文档') + ' · ' + formatBytes(p.size || 0) + ' · ' + fmtDate(p.createdAt) + '</div></div>' +
         '<button class="mini-act danger" data-act="pdf-del" data-id="' + p.id + '" title="删除">' + icon('trash') + '</button>' +
+        '<span class="icon chev">' + icon('chev-right') + '</span>' +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  async function renderNovelView() {
+    const host = $('#novelViewBody');
+    if (!host) return;
+    const NV = globalNovel();
+    let novels = [];
+    if (NV && typeof NV.listNovels === 'function') {
+      try { novels = await NV.listNovels(); } catch (e) { novels = []; }
+    }
+    const importBar = '<div class="novel-import-bar"><button class="btn btn-primary" id="btnNovelImport">' + icon('plus') + ' 导入 TXT 小说</button>' +
+      '<div class="tiny">支持 .txt 文本，自动分章，像小说一样离线阅读</div></div>';
+    if (!novels.length) {
+      host.innerHTML = importBar + '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
+        '<span>点上方按钮导入 TXT 小说，自动识别章节，享受番茄小说式的阅读体验。</span></div>';
+      return;
+    }
+    host.innerHTML = importBar + '<div class="pdf-list">' + novels.map(n => {
+      const prog = n.progress || {};
+      const total = (n.chapters && n.chapters.length) || 1;
+      const ch = (prog.chapter || 0) + 1;
+      const pct = Math.min(100, Math.round((ch / total) * 100));
+      return '<div class="pdf-row novel-row" data-id="' + n.id + '" data-kind="novel">' +
+        '<div class="pdf-ic novel">' + icon('book') + '</div>' +
+        '<div class="pdf-meta"><div class="pdf-name">' + esc(n.name) + '</div>' +
+        '<div class="pdf-sub">' + total + ' 章 · ' + formatBytes(n.size || 0) + ' · 读到第 ' + ch + ' 章（' + pct + '%）</div>' +
+        '<div class="novel-progress"><i style="width:' + pct + '%"></i></div></div>' +
+        '<button class="mini-act danger" data-act="novel-del" data-id="' + n.id + '" title="删除">' + icon('trash') + '</button>' +
         '<span class="icon chev">' + icon('chev-right') + '</span>' +
         '</div>';
     }).join('') + '</div>';
@@ -2005,7 +2099,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.1 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.2 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2537,17 +2631,35 @@
         options: [
           { icon: 'plus', title: '直接录入错题', desc: '拍照 / 相册 / 文字，手动录入一道', value: 'single' },
           { icon: 'layers', title: '批量导入错题', desc: '从 JSON / ZIP 文件一次导入多道（可含图片）', value: 'batch' },
-          { icon: 'pdf', title: '导入 PDF / 本地 HTML', desc: '打开 PDF 学习资料或本地 HTML 文档，离线查看', value: 'pdf' }
+          { icon: 'pdf', title: '导入资料', desc: '导入 PDF / 本地 HTML / TXT 小说，离线查看', value: 'pdf' }
         ]
       });
       if (choice === 'batch') openBatchImport();
-      else if (choice === 'pdf') setView('pdf');
+      else if (choice === 'pdf') doPromptDocImport();
       else if (choice === 'single') openEditor(null);
     };
     $('#btnTheme').onclick = () => setTheme(state.config.theme === 'dark' ? 'light' : 'dark');
     $('#btnStats').onclick = () => { haptic(); setView('stats'); };
-    $('#btnPdfAdd').onclick = () => { haptic(); doPromptPdfImport(); };
-    $('#btnHtmlAdd').onclick = () => { haptic(); doPromptHtmlImport(); };
+
+    // "导入资料" from the FAB opens a chooser so it actually triggers a file picker.
+    async function doPromptDocImport() {
+      const kind = await optionDialog({
+        title: '导入资料', desc: '选择要导入的文件类型',
+        options: [
+          { icon: 'pdf', title: 'PDF 文档', desc: '导入 PDF 学习资料，连续滚动阅读', value: 'pdf' },
+          { icon: 'note', title: '本地 HTML', desc: '打开本地 HTML 文档', value: 'html' },
+          { icon: 'book', title: 'TXT 小说', desc: '导入 txt，番茄小说式阅读', value: 'txt' }
+        ]
+      });
+      if (kind === 'pdf') doPromptPdfImport();
+      else if (kind === 'html') doPromptHtmlImport();
+      else if (kind === 'txt') doPromptTxtImport();
+    }
+
+    // 资料页「资料 / 小说」切换
+    $$('.doc-tabs button').forEach(b => b.onclick = () => { haptic(); switchDocTab(b.dataset.doctab); });
+    const novelImportBtn = $('#btnNovelImport');
+    if (novelImportBtn) novelImportBtn.onclick = () => { haptic(); doPromptTxtImport(); };
     $('#btnFilter').onclick = openFilterSheet;
     $('#btnSort').onclick = openSortSheet;
     $('#btnBatch').onclick = () => { haptic(); openBatchImport(); };
@@ -2563,6 +2675,12 @@
     if (htmlInput) htmlInput.addEventListener('change', e => {
       const f = e.target.files && e.target.files[0];
       if (f) doImportHtml(f);
+      e.target.value = '';
+    });
+    const txtInput = $('#txtFileInput');
+    if (txtInput) txtInput.addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      if (f) doImportTxt(f);
       e.target.value = '';
     });
 
@@ -2586,6 +2704,32 @@
           const id = row.getAttribute('data-id');
           if (row.getAttribute('data-kind') === 'html') openHtmlViewer(id);
           else openPdfViewer(id);
+        }
+      });
+    }
+
+    // NovEL shelf: open reader + delete
+    const novelBody = $('#novelViewBody');
+    if (novelBody) {
+      novelBody.addEventListener('click', async e => {
+        const del = e.target.closest('[data-act="novel-del"]');
+        if (del) {
+          e.stopPropagation();
+          const id = del.getAttribute('data-id');
+          const ok = await confirmDialog({ title: '移除这本小说？', desc: '删除后无法恢复，如需保留请从其他途径留存 txt。', confirmText: '删除', danger: true });
+          if (!ok) return;
+          await DB.deletePdf(id);
+          toast('已移除小说');
+          renderNovelView();
+          return;
+        }
+        const imp = e.target.closest('#btnNovelImport');
+        if (imp) { haptic(); doPromptTxtImport(); return; }
+        const row = e.target.closest('.novel-row');
+        if (row) {
+          const NV = globalNovel();
+          if (NV && typeof NV.openReader === 'function') NV.openReader(row.getAttribute('data-id'));
+          else toast('小说阅读器尚未加载', 'err');
         }
       });
     }
@@ -2634,6 +2778,9 @@
         case 'cfg-add': cfgAdd(el.dataset.k); break;
         case 'cfg-edit': cfgEdit(el.dataset.k, +el.dataset.i); break;
         case 'cfg-del': cfgDelete(el.dataset.k, +el.dataset.i); break;
+        case 'tag-subject':
+          state.manageTagSubject = el.dataset.v || '';
+          renderManage(); break;
         case 'export': exportBackup(); break;
         case 'import': $('#importFile').click(); break;
         case 'batch': openBatchImport(); break;

@@ -1,0 +1,172 @@
+/* ============================================================
+   novel.css — TXT 小说阅读器（独立样式，不修改 glass.css）
+   ============================================================ */
+
+.novel-overlay{ z-index: 70; }
+.novel-overlay .overlay-mask{ z-index: 0; }
+
+/* ---------- 全屏 sheet ---------- */
+.novel-reader{
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--nv-bg, #f6f1e4);
+  color: var(--nv-text, #2b2a26);
+  border-top-color: var(--nv-line, rgba(60,50,30,.14));
+  overflow: hidden;
+  animation: sheetUp .42s var(--ease);
+}
+
+/* ---------- 三档阅读主题 ---------- */
+.novel-reader.theme-paper{
+  --nv-bg: #f6f1e4; --nv-text: #2b2a26;
+  --nv-bar: rgba(246,241,228,.94); --nv-line: rgba(60,50,30,.14);
+  --nv-muted: #8a8372; --nv-accent: #8a6d3b;
+}
+.novel-reader.theme-eye{
+  --nv-bg: #cbdcb4; --nv-text: #26331f;
+  --nv-bar: rgba(203,220,180,.95); --nv-line: rgba(40,60,30,.16);
+  --nv-muted: #64755a; --nv-accent: #4a7a3a;
+}
+.novel-reader.theme-night{
+  --nv-bg: #12151c; --nv-text: #c8cdd6;
+  --nv-bar: rgba(18,21,28,.94); --nv-line: rgba(255,255,255,.10);
+  --nv-muted: #7b8390; --nv-accent: #8d7dff;
+}
+
+/* ---------- 顶栏 ---------- */
+.novel-top{
+  flex: none; position: relative; z-index: 3;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--nv-line);
+  background: var(--nv-bar);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  transition: opacity .25s var(--ease-soft), transform .25s var(--ease-soft);
+}
+.novel-top h2{
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 16px; font-weight: 700; color: var(--nv-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.novel-top .icon-btn{ color: var(--nv-text); background: transparent; border-color: transparent; }
+.novel-top .icon-btn .icon{ width: 22px; height: 22px; }
+.novel-top .icon-btn:active{ transform: scale(.9); opacity: .55; }
+
+/* ---------- 正文 ---------- */
+.novel-content{
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  padding: 22px 22px 46px;
+  background: var(--nv-bg);
+  color: var(--nv-text);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.novel-content p{
+  margin: 0 0 .7em;
+  text-indent: 2em;
+  line-height: 1.9;
+  font-size: var(--nv-font, 20px);
+  letter-spacing: .02em;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.novel-content p:first-child{
+  text-indent: 0; text-align: center;
+  font-size: calc(var(--nv-font, 20px) + 4px);
+  font-weight: 700; line-height: 1.5;
+  margin: 0 0 1.4em;
+}
+.novel-content::-webkit-scrollbar{ width: 5px; }
+.novel-content::-webkit-scrollbar-thumb{ background: var(--nv-line); border-radius: 99px; }
+.novel-content::-webkit-scrollbar-track{ background: transparent; }
+
+/* ---------- 底栏 ---------- */
+.novel-bottom{
+  flex: none; position: relative; z-index: 3;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--nv-line);
+  background: var(--nv-bar);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  transition: opacity .25s var(--ease-soft), transform .25s var(--ease-soft);
+}
+.novel-nav{ display: flex; align-items: center; gap: 10px; }
+.novel-nav button{
+  flex: 0 0 auto; min-width: 80px; height: 38px; padding: 0 14px;
+  border-radius: 12px; font-size: 13px; font-weight: 650;
+  color: var(--nv-text); background: transparent;
+  border: 1px solid var(--nv-line);
+  transition: transform .18s var(--ease), background .18s, opacity .18s;
+}
+.novel-nav button:active:not(:disabled){ transform: scale(.94); background: rgba(128,128,128,.14); }
+.novel-nav button:disabled{ opacity: .34; }
+#nvProgress{
+  flex: 1; text-align: center;
+  font-size: 12.5px; color: var(--nv-muted);
+  font-variant-numeric: tabular-nums;
+}
+.novel-tools{ display: flex; align-items: center; gap: 8px; }
+.novel-tools button{
+  flex: 1; height: 36px; border-radius: 11px;
+  font-size: 12.5px; font-weight: 650;
+  color: var(--nv-text); background: transparent;
+  border: 1px solid var(--nv-line);
+  transition: transform .18s var(--ease), background .18s;
+}
+.novel-tools button:active{ transform: scale(.94); background: rgba(128,128,128,.14); }
+.novel-tools.tools-collapsed button:not(#nvSetting){ display: none; }
+
+/* ---------- 沉浸模式：隐藏顶栏/底栏 ---------- */
+.novel-reader.immersive .novel-top,
+.novel-reader.immersive .novel-bottom{
+  opacity: 0; pointer-events: none;
+}
+.novel-reader.immersive .novel-top{ transform: translateY(-100%); }
+.novel-reader.immersive .novel-bottom{ transform: translateY(100%); }
+
+/* ---------- 目录抽屉 ---------- */
+.nv-cat-scrim{
+  position: absolute; inset: 0; z-index: 4;
+  background: rgba(0,0,0,.34);
+  animation: fadeIn .2s;
+}
+.nv-cat-scrim[hidden], .novel-catalog[hidden]{ display: none; }
+
+.novel-catalog{
+  position: absolute; top: 0; left: 0; bottom: 0; z-index: 5;
+  width: 78%; max-width: 340px; height: 100%;
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: calc(env(safe-area-inset-top) + 16px) 0 calc(env(safe-area-inset-bottom) + 16px);
+  background: var(--nv-bar);
+  -webkit-backdrop-filter: blur(26px) saturate(180%); backdrop-filter: blur(26px) saturate(180%);
+  border-right: 1px solid var(--nv-line);
+  box-shadow: var(--shadow-sm);
+  animation: nvSlideIn .28s var(--ease);
+}
+@keyframes nvSlideIn{ from{ transform: translateX(-100%) } to{ transform: none } }
+.nv-cat-head{
+  padding: 0 18px 14px; margin-bottom: 2px;
+  font-size: 13px; font-weight: 700; color: var(--nv-muted);
+  border-bottom: 1px solid var(--nv-line);
+}
+.nv-cat-item{
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 13px 18px; border: 0; border-bottom: 1px solid var(--nv-line);
+  background: transparent; color: var(--nv-text);
+  text-align: left; font-size: 14px;
+  transition: background .18s, color .18s;
+}
+.nv-cat-item:active{ background: rgba(128,128,128,.14); }
+.nv-cat-item.active{ color: var(--nv-accent); font-weight: 700; background: rgba(141,125,255,.14); }
+.nv-cat-idx{
+  flex: none; width: 24px; font-size: 11px;
+  color: var(--nv-muted); font-variant-numeric: tabular-nums;
+}
+.nv-cat-item.active .nv-cat-idx{ color: var(--nv-accent); }
+.nv-cat-title{ flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.novel-catalog::-webkit-scrollbar{ width: 4px; }
+.novel-catalog::-webkit-scrollbar-thumb{ background: var(--nv-line); border-radius: 99px; }
