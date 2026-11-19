@@ -1,5 +1,6 @@
 /* ============================================================
    novel.css — TXT 小说阅读器（独立样式，不修改 glass.css）
+   番茄小说式：按屏分页 / 左右滑动翻页 / 沉浸式（顶底栏覆盖在内容上）
    ============================================================ */
 
 .novel-overlay{ z-index: 70; }
@@ -18,8 +19,7 @@
   animation: sheetUp .32s var(--ease);
   will-change: transform, opacity; backface-visibility: hidden;
 }
-/* entrance blur suppression is provided by .sheet-full.entering in glass.css
-   (novel-reader also carries the sheet-full class) */
+/* entrance blur suppression is provided by .sheet-full.entering in glass.css */
 
 /* ---------- 三档阅读主题 ---------- */
 .novel-reader.theme-paper{
@@ -38,9 +38,9 @@
   --nv-muted: #7b8390; --nv-accent: #8d7dff;
 }
 
-/* ---------- 顶栏 ---------- */
+/* ---------- 顶栏（覆盖在内容上，不占布局流 → 分页高度稳定） ---------- */
 .novel-top{
-  flex: none; position: relative; z-index: 3;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px 10px;
   border-bottom: 1px solid var(--nv-line);
@@ -57,17 +57,16 @@
 .novel-top .icon-btn .icon{ width: 22px; height: 22px; }
 .novel-top .icon-btn:active{ transform: scale(.9); opacity: .55; }
 
-/* ---------- 正文 ---------- */
+/* ---------- 正文（占满整屏，不滚动；按屏分页） ---------- */
 .novel-content{
   flex: 1; min-height: 0;
-  overflow-y: auto; overflow-x: hidden;
-  padding: 22px 22px 46px;
+  overflow: hidden;
+  padding: 58px 22px 104px;
   background: var(--nv-bg);
   color: var(--nv-text);
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
+  will-change: transform, opacity;
 }
-.novel-content p{
+.novel-content .nv-para{
   margin: 0 0 .7em;
   text-indent: 2em;
   line-height: 1.9;
@@ -76,24 +75,28 @@
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.novel-content p:first-child{
+.novel-content .nv-chapter-title{
   text-indent: 0; text-align: center;
   font-size: calc(var(--nv-font, 20px) + 4px);
   font-weight: 700; line-height: 1.5;
   margin: 0 0 1.4em;
 }
-.novel-content::-webkit-scrollbar{ width: 5px; }
-.novel-content::-webkit-scrollbar-thumb{ background: var(--nv-line); border-radius: 99px; }
-.novel-content::-webkit-scrollbar-track{ background: transparent; }
-/* swipe page-turn feedback: slide + fade, GPU-friendly (transform/opacity only) */
-@keyframes nvFlipNext{ from{ opacity:.35; transform: translateX(26px) } to{ opacity:1; transform: none } }
-@keyframes nvFlipPrev{ from{ opacity:.35; transform: translateX(-26px) } to{ opacity:1; transform: none } }
-.novel-content.nv-flip-next{ animation: nvFlipNext .26s var(--ease); }
-.novel-content.nv-flip-prev{ animation: nvFlipPrev .26s var(--ease); }
+/* 隐藏的测量容器：与正文同宽同字体，用于计算每章分页 */
+.novel-content.nv-measure{
+  position: absolute; left: 0; top: 0; z-index: -1;
+  height: auto; min-height: 0; overflow: visible;
+  visibility: hidden; pointer-events: none;
+  width: 100%;
+}
+/* 翻页反馈：滑入 + 淡入，仅 transform/opacity，GPU 友好 */
+@keyframes nvFlipNext{ from{ opacity:.25; transform: translateX(34px) } to{ opacity:1; transform: none } }
+@keyframes nvFlipPrev{ from{ opacity:.25; transform: translateX(-34px) } to{ opacity:1; transform: none } }
+.novel-content.nv-flip-next{ animation: nvFlipNext .22s var(--ease); }
+.novel-content.nv-flip-prev{ animation: nvFlipPrev .22s var(--ease); }
 
-/* ---------- 底栏 ---------- */
+/* ---------- 底栏（覆盖在内容上） ---------- */
 .novel-bottom{
-  flex: none; position: relative; z-index: 3;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
   display: flex; flex-direction: column; gap: 10px;
   padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--nv-line);
@@ -113,7 +116,7 @@
 .novel-nav button:disabled{ opacity: .34; }
 #nvProgress{
   flex: 1; text-align: center;
-  font-size: 12.5px; color: var(--nv-muted);
+  font-size: 12px; color: var(--nv-muted);
   font-variant-numeric: tabular-nums;
 }
 .novel-tools{ display: flex; align-items: center; gap: 8px; }
@@ -125,9 +128,10 @@
   transition: transform .18s var(--ease), background .18s;
 }
 .novel-tools button:active{ transform: scale(.94); background: rgba(128,128,128,.14); }
-.novel-tools.tools-collapsed button:not(#nvSetting){ display: none; }
+.novel-tools button.on{ color: var(--nv-accent); border-color: var(--nv-accent); }
+.novel-tools.tools-collapsed button:not(#nvSetting):not(#nvImmersive){ display: none; }
 
-/* ---------- 沉浸模式：隐藏顶栏/底栏 ---------- */
+/* ---------- 沉浸模式：隐藏顶栏/底栏，只留正文 ---------- */
 .novel-reader.immersive .novel-top,
 .novel-reader.immersive .novel-bottom{
   opacity: 0; pointer-events: none;

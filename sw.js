@@ -1,7 +1,7 @@
 /* Offline service worker — network-first so updates are picked up immediately,
    with a cache fallback so the app still works fully offline.
    All data stays on device; there are no network features. */
-const CACHE = 'cuotiben-v20';
+const CACHE = 'cuotiben-v21';
 const OCR_ASSETS = [
   'ocr/tesseract.min.js', 'ocr/worker.min.js',
   'ocr/tesseract-core-simd-lstm.wasm.js', 'ocr/tesseract-core-simd-lstm.wasm',
