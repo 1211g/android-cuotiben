@@ -15,8 +15,11 @@
   color: var(--nv-text, #2b2a26);
   border-top-color: var(--nv-line, rgba(60,50,30,.14));
   overflow: hidden;
-  animation: sheetUp .42s var(--ease);
+  animation: sheetUp .32s var(--ease);
+  will-change: transform, opacity; backface-visibility: hidden;
 }
+/* entrance blur suppression is provided by .sheet-full.entering in glass.css
+   (novel-reader also carries the sheet-full class) */
 
 /* ---------- 三档阅读主题 ---------- */
 .novel-reader.theme-paper{
@@ -82,6 +85,11 @@
 .novel-content::-webkit-scrollbar{ width: 5px; }
 .novel-content::-webkit-scrollbar-thumb{ background: var(--nv-line); border-radius: 99px; }
 .novel-content::-webkit-scrollbar-track{ background: transparent; }
+/* swipe page-turn feedback: slide + fade, GPU-friendly (transform/opacity only) */
+@keyframes nvFlipNext{ from{ opacity:.35; transform: translateX(26px) } to{ opacity:1; transform: none } }
+@keyframes nvFlipPrev{ from{ opacity:.35; transform: translateX(-26px) } to{ opacity:1; transform: none } }
+.novel-content.nv-flip-next{ animation: nvFlipNext .26s var(--ease); }
+.novel-content.nv-flip-prev{ animation: nvFlipPrev .26s var(--ease); }
 
 /* ---------- 底栏 ---------- */
 .novel-bottom{

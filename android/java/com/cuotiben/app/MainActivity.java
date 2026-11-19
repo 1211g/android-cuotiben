@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
         s.setSupportZoom(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.2 (offline)");
+        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.3 (offline)");
 
         web.addJavascriptInterface(new Bridge(), "CuotiBridge");
 
@@ -266,13 +266,14 @@ public class MainActivity extends Activity {
                 intent.setType("image/*");
                 title = "选择图片";
             } else {
-                /* application/octet-stream is a widely honoured fallback for
-                   strict pickers that match EXTRA_MIME_TYPES exactly. */
-                if (!mimes.contains("application/octet-stream")) {
-                    mimes.add("application/octet-stream");
-                }
+                /* Show ALL files with a wildcard type intent — do not attach
+                   EXTRA_MIME_TYPES. Several Android/OEM pickers either do not
+                   index local .html/.htm files as "text/html" or treat the MIME
+                   extras as an AND filter, so HTML (and sometimes other doc
+                   types) never appeared in the chooser. The web layer already
+                   validates extension + magic bytes on import, so letting the
+                   user see every file is safe and guarantees HTML shows up. */
                 intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
                 title = "选择文件";
             }
             if (multiple) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);

@@ -18,6 +18,10 @@
     hideMastered: false,
     autoDeleteZip: false,
     backupDir: 'Download/Noteee备份',
+    // Per-subject field visibility: { subjectName: ['stem'|'correct'|'cause', ...] }
+    // Fields listed here are hidden in the editor and detail view for that subject
+    // (data is always kept). Useful when a subject uses images instead of a stem.
+    hiddenFields: {},
     schema: SCHEMA
   };
 

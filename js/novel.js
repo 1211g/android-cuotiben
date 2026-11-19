@@ -278,6 +278,9 @@
     buildCatalog();
     renderChapter();
     host.appendChild(root);
+    // Smooth entrance: skip the full-screen blur while the reader slides in,
+    // restore it afterwards (same helper the app sheets use) — no frame drops.
+    if (U.enterSheet) U.enterSheet(root.querySelector('.novel-reader'));
     content.scrollTop = restoreScroll;
 
     // 事件绑定
@@ -301,8 +304,34 @@
     });
     content.addEventListener('scroll', onScroll, { passive: true });
 
+    // --- swipe to turn chapters (horizontal gesture on the reading area) ---
+    // Tap-to-turn (click) stays for desktop; on touch, touchend handles both the
+    // swipe and suppresses the synthesised click via lastTouchEnd.
+    function flip(dir) {
+      content.classList.remove('nv-flip-next', 'nv-flip-prev');
+      void content.offsetWidth; // force reflow so the animation restarts
+      content.classList.add(dir === 'next' ? 'nv-flip-next' : 'nv-flip-prev');
+    }
     let lastTouchEnd = 0;
-    content.addEventListener('touchend', function () { lastTouchEnd = Date.now(); }, { passive: true });
+    let tsX = 0, tsY = 0, tsT = 0, swiping = false;
+    content.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { swiping = false; return; }
+      tsX = e.touches[0].clientX; tsY = e.touches[0].clientY; tsT = Date.now(); swiping = true;
+    }, { passive: true });
+    content.addEventListener('touchcancel', function () { swiping = false; }, { passive: true });
+    content.addEventListener('touchend', function (e) {
+      lastTouchEnd = Date.now();
+      if (!swiping || !e.changedTouches || !e.changedTouches.length) return;
+      swiping = false;
+      const dx = e.changedTouches[0].clientX - tsX;
+      const dy = e.changedTouches[0].clientY - tsY;
+      const dt = Date.now() - tsT;
+      // horizontal-dominant, meaningful distance, not a slow drag → page turn
+      if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.4 && dt < 900) {
+        const target = Math.min(total - 1, Math.max(0, cur + (dx < 0 ? 1 : -1)));
+        if (target !== cur) { flip(dx < 0 ? 'next' : 'prev'); goChapter(target); }
+      }
+    }, { passive: true });
     content.addEventListener('click', function (e) {
       if (Date.now() - lastTouchEnd < 400) return; // 移动端 touchend 后抑制重复 click
       const r = content.getBoundingClientRect();

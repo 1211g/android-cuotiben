@@ -363,15 +363,22 @@ body.theme-light .qcard::before{ background: linear-gradient(135deg, rgba(255, 2
 .overlay-mask{ position: absolute; inset: 0; background: rgba(4, 7, 18, .52); -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); animation: fadeIn .3s; }
 body.theme-light .overlay-mask{ background: rgba(30, 40, 80, .28); }
 @keyframes fadeIn{ from{ opacity: 0 } to{ opacity: 1 } }
-@keyframes sheetUp{ from{ transform: translateY(100%) } to{ transform: none } }
+@keyframes sheetUp{ from{ transform: translate3d(0,100%,0) } to{ transform: translate3d(0,0,0) } }
 @keyframes popIn{ from{ opacity: 0; transform: scale(.9) translateY(16px) } to{ opacity: 1; transform: none } }
+
+/* Smooth sheet entrance: while the sheet slides in we drop the expensive
+   full-screen backdrop blur (recomputed every frame) and rely on a GPU
+   transform + the solid --sheet background. The glass blur is restored as soon
+   as the animation finishes via the .entering class being removed. */
+.sheet-full, .sheet-card{ will-change: transform, opacity; backface-visibility: hidden; }
+.sheet-full.entering, .sheet-card.entering{ -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 
 .sheet-full{
   position: relative; width: 100%; height: 100%;
   background: var(--sheet); -webkit-backdrop-filter: blur(34px) saturate(180%); backdrop-filter: blur(34px) saturate(180%);
   display: flex; flex-direction: column;
   padding-top: env(safe-area-inset-top);
-  animation: sheetUp .42s var(--ease);
+  animation: sheetUp .32s var(--ease);
   border-top: 1px solid var(--stroke-2);
 }
 .sheet-card{
@@ -787,6 +794,16 @@ input[type=range]::-webkit-slider-thumb{ appearance: none; width: 18px; height: 
 }
 .tag-subject-chip.on{ color: #fff; background: linear-gradient(140deg, var(--accent), var(--accent-2)); border-color: transparent; box-shadow: 0 3px 10px rgba(120,100,255,.28); }
 .tag-subject-chip:active{ transform: scale(.94); }
+
+/* ---------------- MANAGE: per-subject field visibility ---------------- */
+.field-vis-group .glist{ gap: 7px; }
+.field-vis-row{
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: 13px; background: var(--glass-2); border: 1px solid var(--stroke);
+}
+.field-vis-row .grow-title{ font-size: 13px; font-weight: 640; }
+.field-vis-row .grow-sub{ font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+.field-vis-row .switch{ cursor: pointer; }
 
 /* ---------------- VISION: OCR + CLEAN FIGURE ---------------- */
 .vision-sheet{ overflow-y: auto; max-height: 90%; }

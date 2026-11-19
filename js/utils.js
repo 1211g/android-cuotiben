@@ -234,10 +234,29 @@
     try { if (navigator.vibrate) navigator.vibrate(ms || 8); } catch (e) { /* noop */ }
   }
 
+  /* Mark a sheet as "entering" so CSS can drop the expensive full-screen
+     backdrop blur while it slides in, then restore it on animation end.
+     GPU-friendly: avoids per-frame gaussian-blur recomputation (frame drops). */
+  function enterSheet(sheet) {
+    if (!sheet) return;
+    sheet.classList.add('entering');
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      sheet.classList.remove('entering');
+      sheet.removeEventListener('animationend', finish);
+      sheet.style.willChange = '';
+    };
+    sheet.addEventListener('animationend', finish);
+    // fallback in case animationend never fires (reduced motion / hidden tab)
+    setTimeout(finish, 700);
+  }
+
   global.U = {
     $, $$, esc, uid, pad, fmtDate, fmtDateTime, fmtTime, relDate,
     startOfWeek, weekShort, formatBytes, icon, debounce,
     readFileAsDataURL, readFileAsText, loadImage, makeVariants, dataURLToBytes, bytesToDataURL,
-    downloadBlob, toast, haptic
+    downloadBlob, toast, haptic, enterSheet
   };
 })(window);

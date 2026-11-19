@@ -26,8 +26,23 @@
     detailId: null,
     coverCache: new Map(),
     docTab: 'docs',          // 'docs' | 'novels' inside the 资料 view
-    manageTagSubject: ''     // '' = all subjects; tag list filtered by this subject in 管理
+    manageTagSubject: '',    // '' = all subjects; tag list filtered by this subject in 管理
+    manageFieldSubject: ''   // '' = first subject; which subject's field visibility is being edited
   };
+
+  // Which content fields are hidden for a given subject (data is always kept).
+  const HIDDEN_FIELD_META = [
+    { key: 'stem', label: '题干' },
+    { key: 'correct', label: '正确答案 / 我的答案' },
+    { key: 'cause', label: '错因' }
+  ];
+  function hiddenFieldsFor(subject) {
+    const hf = state.config && state.config.hiddenFields;
+    return (hf && hf[subject]) || [];
+  }
+  function fieldHidden(subject, key) {
+    return hiddenFieldsFor(subject).indexOf(key) >= 0;
+  }
 
   const MASTERY = {
     unmastered: { label: '未掌握', cls: 'unmastered' },
@@ -100,6 +115,10 @@
     ov.className = 'overlay ' + (cls || 'center');
     ov.innerHTML = '<div class="overlay-mask"></div>' + inner;
     $('#overlayRoot').appendChild(ov);
+    // Suppress the full-screen backdrop blur during the entrance slide so the
+    // PDF / detail / editor sheets open without frame drops; blur returns after.
+    const sheet = $('.sheet-full', ov) || $('.sheet-card', ov);
+    if (sheet && U.enterSheet) U.enterSheet(sheet);
     if (!persistent) $('.overlay-mask', ov).onclick = () => closeOverlay(ov);
     return ov;
   }
@@ -634,9 +653,10 @@
       html += '<div class="detail-imgs">' + imgs.map((im, i) =>
         '<img src="' + im.full + '" data-img="' + i + '" alt="题目图片' + (i + 1) + '">').join('') + '</div>';
     }
-    if (q.stem) html += panel('题干', 'type', '<div class="panel-text" data-math-text="' + esc(q.stem) + '">' + esc(q.stem) + '</div>');
-    html += panel('正确答案', 'check-circle', '<div class="panel-text" data-math-text="' + esc(q.correctAnswer || '') + '">' + (q.correctAnswer ? esc(q.correctAnswer) : '<span class="muted">未填写</span>') + '</div>');
-    html += panel('错因', 'info', '<div class="panel-text"><span data-math-text="' + esc(q.cause || '') + '">' + esc(q.cause || '未填写') + '</span>' +
+    const fieldHiddenForQ = key => fieldHidden(q.subject, key);
+    if (q.stem && !fieldHiddenForQ('stem')) html += panel('题干', 'type', '<div class="panel-text" data-math-text="' + esc(q.stem) + '">' + esc(q.stem) + '</div>');
+    if (!fieldHiddenForQ('correct')) html += panel('正确答案', 'check-circle', '<div class="panel-text" data-math-text="' + esc(q.correctAnswer || '') + '">' + (q.correctAnswer ? esc(q.correctAnswer) : '<span class="muted">未填写</span>') + '</div>');
+    if (!fieldHiddenForQ('cause')) html += panel('错因', 'info', '<div class="panel-text"><span data-math-text="' + esc(q.cause || '') + '">' + esc(q.cause || '未填写') + '</span>' +
       (q.causeExtra ? '<br><span style="color:var(--text-2)">补充说明：<span data-math-text="' + esc(q.causeExtra) + '">' + esc(q.causeExtra) + '</span></span>' : '') + '</div>');
     html += panel('解析', 'book', '<div class="panel-text" data-math-text="' + esc(q.analysis || '') + '">' + (q.analysis ? esc(q.analysis) : '<span class="muted">未填写</span>') + '</div>');
     html += panel('属性', 'layers',
@@ -774,10 +794,10 @@
       '<div class="tiny mt8">照片可裁剪、调亮度；支持离线 OCR 识别转文字，几何图形可一键变成纯白背景干净图片。全部在本机完成。</div>' +
 
       '<div class="section-label" style="margin-top:22px">题目内容</div>' +
-      '<div class="field"><div class="field-label">文字题干 <span class="req">*</span><span class="hint">无图时必填，图片题建议补一句便于搜索</span></div>' +
+      '<div class="field" id="field-stem"><div class="field-label">文字题干 <span class="req">*</span><span class="hint">无图时必填，图片题建议补一句便于搜索</span></div>' +
       '<textarea class="textarea" id="f-stem" placeholder="输入题目文字，或粘贴题干…">' + esc(d.stem) + '</textarea></div>' +
-      '<div class="field"><div class="field-label">正确答案</div><textarea class="textarea" id="f-correct" placeholder="标准答案 / 完整解题过程">' + esc(d.correctAnswer) + '</textarea></div>' +
-      '<div class="field"><div class="field-label">错因 <span class="hint">点选常用项</span></div>' +
+      '<div class="field" id="field-correct"><div class="field-label">正确答案</div><textarea class="textarea" id="f-correct" placeholder="标准答案 / 完整解题过程">' + esc(d.correctAnswer) + '</textarea></div>' +
+      '<div class="field" id="field-cause"><div class="field-label">错因 <span class="hint">点选常用项</span></div>' +
       '<div class="choice-row" id="f-causes">' + causeChips + '</div>' +
       '<div id="causeExtraWrap" class="' + (d.cause === '其他' ? '' : 'hidden') + '" style="margin-top:9px">' +
       '<input class="input" id="f-causeExtra" placeholder="补充错因说明" value="' + esc(d.causeExtra) + '"></div></div>' +
@@ -816,6 +836,16 @@
     const syncTags = () => $$('[data-tag]', ov).forEach(b => b.classList.toggle('on', d.tags.includes(b.dataset.tag)));
     const syncMastery = () => $$('#f-mastery button', ov).forEach(b => b.classList.toggle('on', b.dataset.m === d.mastery));
 
+    // Per-subject field visibility: hide the configured field wrappers for the
+    // currently selected subject. Data is never cleared — only hidden.
+    function applyEditorFieldVis() {
+      const subj = $('#f-subject', ov) ? $('#f-subject', ov).value : d.subject;
+      HIDDEN_FIELD_META.forEach(f => {
+        const wrap = $('#field-' + f.key, ov);
+        if (wrap) wrap.classList.toggle('hidden', fieldHidden(subj, f.key));
+      });
+    }
+
     function renderDraftImages() {
       const grid = $('#draftImgs', ov);
       grid.innerHTML = d._images.map((im, i) =>
@@ -843,7 +873,11 @@
     async function save(continueNext) {
       collect();
       if (!d.subject) { toast('请选择科目', 'err'); return; }
-      if (!d.stem && !d._images.length) { toast('请填写文字题干或添加一张题目图片', 'err'); return; }
+      // 题干字段被隐藏的科目允许用图片/答案等其他内容替代题干保存
+      const stemHidden = fieldHidden(d.subject, 'stem');
+      const hasOther = d.correctAnswer || d.analysis || d.cause || (d._images && d._images.length);
+      if (!stemHidden && !d.stem && !(d._images && d._images.length)) { toast('请填写文字题干或添加一张题目图片', 'err'); return; }
+      if (stemHidden && !d.stem && !(d._images && d._images.length) && !hasOther) { toast('请至少添加图片或填写答案内容', 'err'); return; }
       const now = Date.now();
       const record = {
         id: d.id, stem: d.stem, options: d.options, correctAnswer: d.correctAnswer,
@@ -872,7 +906,9 @@
     }
 
     /* ---- bindings ---- */
-    renderDraftImages(); syncCauses(); syncTags(); syncMastery();
+    renderDraftImages(); syncCauses(); syncTags(); syncMastery(); applyEditorFieldVis();
+    const subjectSel = $('#f-subject', ov);
+    if (subjectSel) subjectSel.addEventListener('change', applyEditorFieldVis);
 
     $$('[data-cause]', ov).forEach(b => b.onclick = () => {
       d.cause = d.cause === b.dataset.cause ? '' : b.dataset.cause;
@@ -1624,6 +1660,27 @@
         (hiddenNote || '<div class="tiny mt8" style="padding:0 4px">' + meta.hint + '</div>') +
         '</div>';
     });
+
+    // 科目字段显示：为不同科目控制录入/详情中显示哪些字段（图片替代题干等场景）
+    const subs = cfg.subjects || [];
+    if (subs.length) {
+      if (!subs.includes(state.manageFieldSubject)) state.manageFieldSubject = subs[0];
+      const subjChips = subs.map(s => '<button class="tag-subject-chip' + (state.manageFieldSubject === s ? ' on' : '') +
+        '" data-act="field-subject" data-v="' + esc(s) + '">' + esc(s) + '</button>').join('');
+      const cur = state.manageFieldSubject;
+      const fieldRows = HIDDEN_FIELD_META.map(f =>
+        '<div class="grow field-vis-row"><div class="grow-main"><div class="grow-title">' + esc(f.label) + '</div>' +
+        '<div class="grow-sub">' + (fieldHidden(cur, f.key) ? '已隐藏 · 录入与详情均不显示' : '正常显示') + '</div></div>' +
+        '<div class="grow-acts"><div class="switch ' + (fieldHidden(cur, f.key) ? 'on' : '') +
+        '" data-act="toggle-field" data-f="' + f.key + '"><i></i></div></div></div>').join('');
+      html += '<div class="group field-vis-group">' +
+        '<div class="group-head">' + icon('eye') + '<h3>科目字段显示</h3></div>' +
+        '<div class="tiny" style="padding:0 4px 8px">选择科目后，可隐藏该科目录入页与详情页的字段（数据仍保留）。适合用图片替代题干的题目。</div>' +
+        '<div class="tag-subject-bar">' + subjChips + '</div>' +
+        '<div class="glist">' + fieldRows + '</div>' +
+        '</div>';
+    }
+
     $('#manageBody').innerHTML = html;
   }
 
@@ -2099,7 +2156,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.2 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.3 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2781,6 +2838,19 @@
         case 'tag-subject':
           state.manageTagSubject = el.dataset.v || '';
           renderManage(); break;
+        case 'field-subject':
+          state.manageFieldSubject = el.dataset.v || '';
+          renderManage(); break;
+        case 'toggle-field': {
+          const subj = state.manageFieldSubject, key = el.dataset.f;
+          if (!state.config.hiddenFields) state.config.hiddenFields = {};
+          const arr = state.config.hiddenFields[subj] || (state.config.hiddenFields[subj] = []);
+          const i = arr.indexOf(key);
+          if (i >= 0) arr.splice(i, 1); else arr.push(key);
+          await DB.putConfig(state.config);
+          renderManage();
+          toast('字段显示已更新', 'info'); break;
+        }
         case 'export': exportBackup(); break;
         case 'import': $('#importFile').click(); break;
         case 'batch': openBatchImport(); break;

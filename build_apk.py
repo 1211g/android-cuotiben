@@ -8,7 +8,7 @@
   2. aapt2 compile + link  -> base.apk（含 resources.arsc / res / assets / Manifest）
   3. javac + jar + d8      -> classes.dex
   4. 用 classes.dex 全量重建 unsigned.apk（避免 zip 头不一致）
-  5. zipalign -> apksigner 签名 -> Noteee-v1.0.2.apk
+  5. zipalign -> apksigner 签名 -> Noteee-v1.0.3.apk
      （签名密钥 android/cuotiben.jks 持久化，重复构建可覆盖安装）
 
 用法：python build_apk.py
@@ -43,8 +43,8 @@ EXTRA_JDK_DIRS = [
 ]
 EXTRA_TOOLCHAIN_DIRS = [WORKSPACE / ".toolchain", LEGACY_WORKSPACE / ".toolchain"]
 
-APP_NAME = "Noteee-v1.0.2.apk"
-CN_NAME = "Noteee-v1.0.2-签名版.apk"
+APP_NAME = "Noteee-v1.0.3.apk"
+CN_NAME = "Noteee-v1.0.3-签名版.apk"
 STOREPASS = "cuotiben123"
 ALIAS = "cuotiben"
 # 放在 android/ 而非 android/build/：build/ 每次构建会清空，密钥必须持久保留，
@@ -196,8 +196,8 @@ def main():
          "--auto-add-overlay",
          "--min-sdk-version", "26",
          "--target-sdk-version", "34",
-         "--version-code", "3",
-         "--version-name", "1.0.2",
+         "--version-code", "4",
+         "--version-name", "1.0.3",
          # OCR wasm / traineddata assets are >1 MB. AssetManager.open() can only
          # uncompress up to UNCOMPRESS_DATA_MAX (~1 MB), so store them uncompressed.
          "-0", "wasm", "-0", "gz", "-0", "js", "-0", "txt", "-0", "woff2"])
