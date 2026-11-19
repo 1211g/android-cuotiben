@@ -6,6 +6,7 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -39,7 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Offline WebView shell for 错题本.
+ * Offline WebView shell for Noteee.
  *
  * All web assets are served from assets/www through a stable, secure origin
  * (https://cuotiben.local/) so IndexedDB, DOM storage and relative URLs work
@@ -52,11 +53,12 @@ public class MainActivity extends Activity {
     private static final String HOST = "cuotiben.local";
     private static final int REQ_PERMS = 1001;
     private static final int REQ_FILE = 1002;
-    private static final String BACKUP_SUBDIR = "错题本备份";
+    private static final String BACKUP_SUBDIR = "Noteee备份";
 
     private WebView web;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri captureUri;
+    private Uri lastPickedUri = null;
     private boolean lightStatusBar = false;
 
     @Override
@@ -99,7 +101,7 @@ public class MainActivity extends Activity {
         s.setSupportZoom(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " Cuotiben/1.0 (offline)");
+        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.1 (offline)");
 
         web.addJavascriptInterface(new Bridge(), "CuotiBridge");
 
@@ -316,6 +318,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
+        lastPickedUri = (results != null && results.length > 0) ? results[0] : null;
         filePathCallback.onReceiveValue(results);
         filePathCallback = null;
         captureUri = null;
@@ -417,10 +420,46 @@ public class MainActivity extends Activity {
         public String backupDir() {
             return "Download/" + BACKUP_SUBDIR;
         }
+
+        /** Delete the most recently picked ZIP file. Used by the "auto-delete ZIP after batch import" setting. */
+        @JavascriptInterface
+        public boolean deleteLastPickedZip() {
+            if (lastPickedUri == null) return false;
+            boolean isZip = false;
+            try {
+                String type = getContentResolver().getType(lastPickedUri);
+                if (type != null) {
+                    String t = type.toLowerCase(Locale.US);
+                    isZip = t.contains("zip") || "application/octet-stream".equals(t);
+                }
+            } catch (Exception ignored) { }
+            if (!isZip) {
+                Cursor c = null;
+                try {
+                    c = getContentResolver().query(lastPickedUri, null, null, null, null);
+                    if (c != null && c.moveToFirst()) {
+                        int idx = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME);
+                        if (idx >= 0) {
+                            String n = c.getString(idx);
+                            isZip = n != null && n.toLowerCase(Locale.US).endsWith(".zip");
+                        }
+                    }
+                } catch (Exception ignored) { }
+                finally { if (c != null) c.close(); }
+            }
+            if (!isZip) return false;
+            try {
+                int n = getContentResolver().delete(lastPickedUri, null, null);
+                lastPickedUri = null;
+                return n > 0;
+            } catch (Exception e) {
+                return false;
+            }
+        }
     }
 
     private static String safeName(String name) {
-        if (name == null || name.isEmpty()) return "错题本备份.zip";
+        if (name == null || name.isEmpty()) return "Noteee备份.zip";
         return name.replace('/', '_').replace('\\', '_');
     }
 

@@ -197,6 +197,7 @@
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
     if (v === 'home') renderHome();
     else if (v === 'stats') renderStats();
+    else if (v === 'pdf') renderPdfView();
     else if (v === 'manage') renderManage();
     else if (v === 'settings') renderSettings();
   }
@@ -1689,12 +1690,19 @@
   }
 
   /* ---------------------------------------------------------
-     PDF LIBRARY + VIEWER
+     DOCS LIBRARY (PDF + local HTML) + VIEWERS
      --------------------------------------------------------- */
   function doPromptPdfImport() {
     const inp = $('#pdfFileInput');
     if (!inp) { toast('PDF 导入不可用', 'err'); return; }
     inp.dataset.context = 'fab';
+    inp.value = '';
+    inp.click();
+  }
+
+  function doPromptHtmlImport() {
+    const inp = $('#htmlFileInput');
+    if (!inp) { toast('HTML 打开不可用', 'err'); return; }
     inp.value = '';
     inp.click();
   }
@@ -1705,64 +1713,67 @@
       toast('正在导入 PDF…', 'info');
       const rec = await Pdf.importFile(file);
       toast('已导入 PDF「' + rec.name + '」', 'ok');
-      // Refresh the library if it is currently open (remove the stale sheet
-      // synchronously so the re-open never stacks two overlays).
-      const sheet = document.querySelector('#overlayRoot .pdf-sheet');
-      if (sheet) {
-        const stale = sheet.closest('.overlay');
-        if (stale) stale.remove();
-        openPdfLibrary();
+      if (state.view === 'pdf') renderPdfView();
+      else {
+        const sheet = document.querySelector('#overlayRoot .pdf-sheet');
+        if (sheet) { const stale = sheet.closest('.overlay'); if (stale) stale.remove(); openPdfLibrary(); }
       }
     } catch (e) {
       toast('导入失败：' + (e.message || '未知错误'), 'err');
     }
   }
 
-  async function openPdfLibrary() {
-    const pdfs = (await DB.getAllPdfs()).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    let listHTML;
-    if (!pdfs.length) {
-      listHTML = '<div class="pdf-empty">' + icon('pdf') + '<p>还没有导入 PDF</p>' +
-        '<span>点首页的「+」→「导入 PDF」，把学习资料放进来随时离线查看。</span></div>';
-    } else {
-      listHTML = '<div class="pdf-list">' + pdfs.map(p =>
-        '<div class="pdf-row" data-id="' + p.id + '">' +
-        '<div class="pdf-ic">' + icon('pdf') + '</div>' +
+  async function doImportHtml(file) {
+    if (!file) return;
+    try {
+      toast('正在打开本地 HTML…', 'info');
+      const rec = await Pdf.importHtml(file);
+      toast('已加入资料库「' + rec.name + '」', 'ok');
+      if (state.view === 'pdf') renderPdfView();
+    } catch (e) {
+      toast('打开失败：' + (e.message || '未知错误'), 'err');
+    }
+  }
+
+  function openPdfLibrary() {
+    // Kept as an alias: the library is now the "资料" tab view rather than an overlay.
+    setView('pdf');
+  }
+
+  async function renderPdfView() {
+    const host = $('#pdfViewBody');
+    if (!host) return;
+    const docs = (await DB.getAllPdfs()).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (!docs.length) {
+      host.innerHTML = '<div class="pdf-empty">' + icon('pdf') + '<p>还没有资料</p>' +
+        '<span>点顶部「＋」导入 PDF 学习资料，或点「文档」图标打开本地 HTML 文件，随时离线查看。</span></div>';
+      return;
+    }
+    host.innerHTML = '<div class="pdf-list">' + docs.map(p => {
+      const isHtml = p.kind === 'html';
+      return '<div class="pdf-row" data-id="' + p.id + '" data-kind="' + (isHtml ? 'html' : 'pdf') + '">' +
+        '<div class="pdf-ic' + (isHtml ? ' html' : '') + '">' + icon(isHtml ? 'note' : 'pdf') + '</div>' +
         '<div class="pdf-meta"><div class="pdf-name">' + esc(p.name) + '</div>' +
-        '<div class="pdf-sub">' + formatBytes(p.size || 0) + ' · ' + fmtDate(p.createdAt) + '</div></div>' +
+        '<div class="pdf-sub">' + (isHtml ? 'HTML 文档' : 'PDF 文档') + ' · ' + formatBytes(p.size || 0) + ' · ' + fmtDate(p.createdAt) + '</div></div>' +
         '<button class="mini-act danger" data-act="pdf-del" data-id="' + p.id + '" title="删除">' + icon('trash') + '</button>' +
         '<span class="icon chev">' + icon('chev-right') + '</span>' +
-        '</div>').join('') + '</div>';
-    }
-    const ov = overlay(
-      '<div class="sheet-full pdf-sheet">' +
-      '<div class="sheet-head"><button class="icon-btn" data-x="cancel" aria-label="返回">' + icon('arrow-left') + '</button>' +
-      '<h2>PDF 资料</h2><button class="btn btn-primary btn-sm" id="pdfAddBtn">' + icon('plus') + '导入</button></div>' +
-      '<div class="sheet-body">' + listHTML + '</div>' +
-      '</div>', 'bottom', true);
+        '</div>';
+    }).join('') + '</div>';
+  }
 
-    $('[data-x="cancel"]', ov).onclick = () => closeOverlay(ov);
+  async function openHtmlViewer(id) {
+    const rec = await DB.getPdf(id);
+    if (!rec) { toast('资料不存在', 'err'); return; }
+    const ov = overlay(
+      '<div class="sheet-full html-viewer">' +
+      '<div class="sheet-head"><button class="icon-btn" id="hvClose" aria-label="关闭">' + icon('arrow-left') + '</button>' +
+      '<h2>' + esc(rec.name) + '</h2><span class="grow"></span></div>' +
+      '<iframe id="hvFrame" class="html-frame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>' +
+      '</div>', 'bottom', true);
+    const fr = $('#hvFrame', ov);
+    fr.srcdoc = String(rec.data || '');
+    $('#hvClose', ov).onclick = () => closeOverlay(ov);
     $('.overlay-mask', ov).onclick = () => closeOverlay(ov);
-    $('#pdfAddBtn', ov).onclick = () => {
-      const inp = $('#pdfFileInput');
-      if (inp) { inp.value = ''; inp.dataset.context = 'library'; inp.click(); }
-    };
-    $$('.pdf-row', ov).forEach(row => row.onclick = e => {
-      if (e.target.closest('[data-act="pdf-del"]')) return;
-      const id = row.getAttribute('data-id');
-      closeOverlay(ov);
-      openPdfViewer(id);
-    });
-    $$('[data-act="pdf-del"]', ov).forEach(b => b.onclick = async e => {
-      e.stopPropagation();
-      const id = b.getAttribute('data-id');
-      const ok = await confirmDialog({ title: '删除这份 PDF？', desc: '删除后无法恢复，如需保留请先备份。', confirmText: '删除', danger: true });
-      if (!ok) return;
-      await DB.deletePdf(id);
-      toast('已删除 PDF');
-      closeOverlay(ov);
-      openPdfLibrary();
-    });
   }
 
   async function openPdfViewer(id) {
@@ -1985,15 +1996,16 @@
       row('download', '导出备份包', '错题 + 图片打包为 ZIP，可拷到电脑留存', '<button class="btn btn-ghost btn-sm" data-act="export">导出</button>') +
       row('upload', '导入恢复', '选择备份包，覆盖或合并（重复以较新修改时间为准）', '<button class="btn btn-ghost btn-sm" data-act="import">导入</button>') +
       row('broom', '清理残留图片', '只删除未被任何错题引用的图片', '<button class="btn btn-ghost btn-sm" data-act="cleanup">清理</button>') +
-      row('db', '数据占用空间', size.questions + ' 道错题 · ' + size.images + ' 张图片' + (size.pdfs ? ' · ' + size.pdfs + ' 份 PDF' : ''), '<span class="grow-val">' + formatBytes(size.bytes) + '</span>') +
-      row('layers', '备份目录（原生端）', cfg.backupDir || 'Download/错题本备份', '<button class="btn btn-ghost btn-sm" data-act="choose-dir">修改</button>') +
+      row('db', '数据占用空间', size.questions + ' 道错题 · ' + size.images + ' 张图片' + (size.pdfs ? ' · ' + size.pdfs + ' 份资料' : ''), '<span class="grow-val">' + formatBytes(size.bytes) + '</span>') +
+      row('layers', '备份目录（原生端）', cfg.backupDir || 'Download/Noteee备份', '<button class="btn btn-ghost btn-sm" data-act="choose-dir">修改</button>') +
+      row('trash', '导入后删除 ZIP', '批量导入成功后自动删除来源 ZIP 文件（仅原生端生效）', '<div class="switch ' + (cfg.autoDeleteZip ? 'on' : '') + '" data-act="toggle-autodel"><i></i></div>') +
       '</div>' +
       '<input type="file" id="importFile" accept=".zip,application/zip" hidden>' +
       '</div>' +
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>错题本</h3><p>个人自用版 · v1.0.0 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.1 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2009,7 +2021,7 @@
       const [qs, imgs, cfg] = await Promise.all([DB.getAllQuestions(), DB.getAllImages(), DB.getConfig()]);
       const now = Date.now();
       const manifest = {
-        app: '错题本', format: 'cuotiben-backup', schema: DB.SCHEMA, dbVersion: 1,
+        app: 'Noteee', format: 'cuotiben-backup', schema: DB.SCHEMA, dbVersion: 1,
         exportedAt: now, exportedAtText: fmtDateTime(now),
         counts: { questions: qs.length, images: imgs.length }
       };
@@ -2026,7 +2038,7 @@
       });
       const blob = Zip.createZip(files);
       const d = new Date(now);
-      const name = '错题本备份_' + d.getFullYear() + U.pad(d.getMonth() + 1) + U.pad(d.getDate()) + '_' + U.pad(d.getHours()) + U.pad(d.getMinutes()) + '.zip';
+      const name = 'Noteee备份_' + d.getFullYear() + U.pad(d.getMonth() + 1) + U.pad(d.getDate()) + '_' + U.pad(d.getHours()) + U.pad(d.getMinutes()) + '.zip';
 
       // On desktop Chromium, write into a user-chosen directory when available.
       if (state.dirHandle && state.dirHandle.createWritable) {
@@ -2053,7 +2065,7 @@
       const df = byName.get('data.json');
       if (!df) throw new Error('备份包缺少 data.json');
       const manifest = mf ? mf.json() : {};
-      if (manifest.format && manifest.format !== 'cuotiben-backup') throw new Error('这不是错题本备份包');
+      if (manifest.format && manifest.format !== 'cuotiben-backup') throw new Error('这不是 Noteee 备份包');
       const data = df.json();
       if (!Array.isArray(data.questions)) throw new Error('备份数据格式不正确');
 
@@ -2224,14 +2236,14 @@
       { name: 'data.json', data: Zip.strBytes(JSON.stringify(doc, null, 2)) },
       { name: 'images/README.txt', data: Zip.strBytes('把题目图片放进这个 images 目录，文件名与 data.json 里 images 字段对应（如 1.png）。支持 png/jpg/webp/gif。') }
     ];
-    downloadBlob(new Blob([Zip.createZip(files)], { type: 'application/zip' }), '错题本_批量导入模板.zip');
+    downloadBlob(new Blob([Zip.createZip(files)], { type: 'application/zip' }), 'Noteee_批量导入模板.zip');
     toast('ZIP 模板已保存', 'ok');
   }
 
   function openBatchImport() {
     if (!window.Batch) { toast('批量导入模块未加载，请更新 APK', 'err'); return; }
     if (!window.Zip) { toast('ZIP 模块未加载，请更新 APK', 'err'); return; }
-    let parsed = null, mode = 'skip', busy = false;
+    let parsed = null, mode = 'skip', busy = false, sourceIsZip = false;
 
     const body =
       '<div class="batch-note">' +
@@ -2413,6 +2425,13 @@
             toast('已撤销本次批量导入');
           } catch (e) { toast('撤销失败：' + e.message, 'err'); }
         });
+        // 批量导入成功后，若来源是 ZIP 且用户开启了「导入后删除 ZIP」，调用原生桥删除来源文件。
+        if (sourceIsZip && state.config.autoDeleteZip && window.CuotiBridge && typeof CuotiBridge.deleteLastPickedZip === 'function') {
+          try {
+            const deleted = CuotiBridge.deleteLastPickedZip();
+            if (deleted) toast('来源 ZIP 已自动删除', 'info');
+          } catch (e) { /* 删除失败不影响导入结果 */ }
+        }
       } catch (e) {
         console.error(e);
         toast('导入失败：' + e.message, 'err');
@@ -2424,11 +2443,11 @@
     /* ---- bindings ---- */
     const dl = (text, name, type) => U.downloadBlob(new Blob([text], { type: type }), name);
     q('#btTplJson').onclick = () => {
-      dl(Batch.jsonTemplate(state.config), '错题本_批量导入模板.json', 'application/json;charset=utf-8');
+      dl(Batch.jsonTemplate(state.config), 'Noteee_批量导入模板.json', 'application/json;charset=utf-8');
       toast('JSON 模板已保存', 'info');
     };
     q('#btTplCsv').onclick = () => {
-      dl(Batch.csvTemplate(state.config), '错题本_批量导入模板.csv', 'text/csv;charset=utf-8');
+      dl(Batch.csvTemplate(state.config), 'Noteee_批量导入模板.csv', 'text/csv;charset=utf-8');
       toast('CSV 模板已保存（UTF-8 BOM）', 'info');
     };
     q('#btTplZip').onclick = downloadZipTemplate;
@@ -2437,6 +2456,7 @@
       const f = q('#batchFile').files && q('#batchFile').files[0];
       q('#batchFile').value = '';
       if (!f) return;
+      sourceIsZip = /\.zip$/i.test(f.name) || f.type === 'application/zip';
       try {
         if (/\.zip$/i.test(f.name) || f.type === 'application/zip') {
           const r = await readBatchZip(f);
@@ -2479,7 +2499,7 @@
   async function chooseBackupDir() {
     // 直接让用户输入相对目录名。此前优先调用 showDirectoryPicker，在 WebView / 部分
     // 浏览器里它要么弹系统目录框要么静默失败，config.backupDir 始终不变，表现为「点击无效」。
-    const v = await promptDialog({ title: '备份目录', desc: '设置原生端（APK）导出备份时使用的相对目录，相对于系统下载目录。', value: state.config.backupDir, placeholder: 'Download/错题本备份' });
+    const v = await promptDialog({ title: '备份目录', desc: '设置原生端（APK）导出备份时使用的相对目录，相对于系统下载目录。', value: state.config.backupDir, placeholder: 'Download/Noteee备份' });
     if (!v) return;
     state.config.backupDir = v.trim();
     await DB.putConfig(state.config);
@@ -2517,26 +2537,58 @@
         options: [
           { icon: 'plus', title: '直接录入错题', desc: '拍照 / 相册 / 文字，手动录入一道', value: 'single' },
           { icon: 'layers', title: '批量导入错题', desc: '从 JSON / ZIP 文件一次导入多道（可含图片）', value: 'batch' },
-          { icon: 'pdf', title: '导入 PDF', desc: '导入 PDF 学习资料，可随时离线查看', value: 'pdf' }
+          { icon: 'pdf', title: '导入 PDF / 本地 HTML', desc: '打开 PDF 学习资料或本地 HTML 文档，离线查看', value: 'pdf' }
         ]
       });
       if (choice === 'batch') openBatchImport();
-      else if (choice === 'pdf') doPromptPdfImport();
+      else if (choice === 'pdf') setView('pdf');
       else if (choice === 'single') openEditor(null);
     };
     $('#btnTheme').onclick = () => setTheme(state.config.theme === 'dark' ? 'light' : 'dark');
-    $('#btnPdf').onclick = () => { haptic(); openPdfLibrary(); };
+    $('#btnStats').onclick = () => { haptic(); setView('stats'); };
+    $('#btnPdfAdd').onclick = () => { haptic(); doPromptPdfImport(); };
+    $('#btnHtmlAdd').onclick = () => { haptic(); doPromptHtmlImport(); };
     $('#btnFilter').onclick = openFilterSheet;
     $('#btnSort').onclick = openSortSheet;
     $('#btnBatch').onclick = () => { haptic(); openBatchImport(); };
 
-    // PDF 文件选择（加号导入 / PDF 资料库导入共用同一个隐藏 input）
+    // PDF 文件选择（加号导入 / 资料库导入共用同一个隐藏 input）
     const pdfInput = $('#pdfFileInput');
     if (pdfInput) pdfInput.addEventListener('change', e => {
       const f = e.target.files && e.target.files[0];
       if (f) doImportPdf(f);
       e.target.value = '';
     });
+    const htmlInput = $('#htmlFileInput');
+    if (htmlInput) htmlInput.addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      if (f) doImportHtml(f);
+      e.target.value = '';
+    });
+
+    // Docs library lives in the "资料" tab view now; handle row open + delete.
+    const docsBody = $('#pdfViewBody');
+    if (docsBody) {
+      docsBody.addEventListener('click', async e => {
+        const del = e.target.closest('[data-act="pdf-del"]');
+        if (del) {
+          e.stopPropagation();
+          const id = del.getAttribute('data-id');
+          const ok = await confirmDialog({ title: '删除这份资料？', desc: '删除后无法恢复，如需保留请先备份。', confirmText: '删除', danger: true });
+          if (!ok) return;
+          await DB.deletePdf(id);
+          toast('已删除资料');
+          renderPdfView();
+          return;
+        }
+        const row = e.target.closest('.pdf-row');
+        if (row) {
+          const id = row.getAttribute('data-id');
+          if (row.getAttribute('data-kind') === 'html') openHtmlViewer(id);
+          else openPdfViewer(id);
+        }
+      });
+    }
 
     $('#searchInput').addEventListener('input', debounce(e => {
       state.search = e.target.value;
@@ -2575,6 +2627,10 @@
         case 'toggle-hide':
           state.config.hideMastered = !state.config.hideMastered;
           await DB.putConfig(state.config); renderSettings(); renderHome(); break;
+        case 'toggle-autodel':
+          state.config.autoDeleteZip = !state.config.autoDeleteZip;
+          await DB.putConfig(state.config); renderSettings();
+          toast('导入后删除 ZIP 已' + (state.config.autoDeleteZip ? '开启' : '关闭'), 'info'); break;
         case 'cfg-add': cfgAdd(el.dataset.k); break;
         case 'cfg-edit': cfgEdit(el.dataset.k, +el.dataset.i); break;
         case 'cfg-del': cfgDelete(el.dataset.k, +el.dataset.i); break;

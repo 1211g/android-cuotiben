@@ -1,7 +1,7 @@
 {
-  "name": "错题本 · 个人自用",
-  "short_name": "错题本",
-  "description": "本机离线错题记录：拍照录入、筛选搜索、统计复盘、备份导出。不联网、不登录。",
+  "name": "Noteee · 个人自用",
+  "short_name": "Noteee",
+  "description": "本机离线错题记录：拍照录入、筛选搜索、统计复盘、备份导出、PDF 与 HTML 资料离线查看。不联网、不登录。",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "index.html",

@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
-<title>错题本</title>
+<title>Noteee</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -84,10 +84,10 @@
         <header class="topbar">
           <div class="topbar-txt">
             <span class="eyebrow" id="greeting">我的学习空间</span>
-            <h1>错题本<span class="dot">.</span></h1>
+            <h1>Noteee<span class="dot">.</span></h1>
           </div>
           <div class="topbar-acts">
-            <button class="icon-btn" id="btnPdf" aria-label="查看 PDF" title="查看 PDF"><svg class="icon"><use href="#i-pdf"/></svg></button>
+            <button class="icon-btn" id="btnStats" aria-label="统计" title="统计"><svg class="icon"><use href="#i-chart"/></svg></button>
             <button class="icon-btn" id="btnTheme" aria-label="切换主题"><svg class="icon"><use href="#i-moon"/></svg></button>
           </div>
         </header>
@@ -127,6 +127,21 @@
         </div>
       </section>
 
+      <!-- ================= PDF / LOCAL DOCS ================= -->
+      <section class="view" id="view-pdf">
+        <header class="topbar">
+          <div class="topbar-txt"><span class="eyebrow">离线资料</span><h1>资料<span class="dot">.</span></h1></div>
+          <div class="topbar-acts">
+            <button class="icon-btn" id="btnHtmlAdd" aria-label="打开本地 HTML" title="打开本地 HTML"><svg class="icon"><use href="#i-note"/></svg></button>
+            <button class="icon-btn" id="btnPdfAdd" aria-label="导入 PDF" title="导入 PDF"><svg class="icon"><use href="#i-plus"/></svg></button>
+          </div>
+        </header>
+        <div class="scroll" id="docsScroll">
+          <div id="pdfViewBody"></div>
+          <div class="scroll-pad"></div>
+        </div>
+      </section>
+
       <!-- ================= MANAGE ================= -->
       <section class="view" id="view-manage">
         <header class="topbar">
@@ -156,13 +171,14 @@
     <nav class="tabbar" id="tabbar">
       <div class="tabbar-glass"></div>
       <button class="tab active" data-view="home"><svg class="icon"><use href="#i-list"/></svg><span>错题</span></button>
-      <button class="tab" data-view="stats"><svg class="icon"><use href="#i-chart"/></svg><span>统计</span></button>
+      <button class="tab" data-view="pdf"><svg class="icon"><use href="#i-pdf"/></svg><span>资料</span></button>
       <div class="fab-slot"><button class="fab" id="btnAdd" aria-label="录入错题"><svg class="icon"><use href="#i-plus"/></svg></button></div>
       <button class="tab" data-view="manage"><svg class="icon"><use href="#i-layers"/></svg><span>管理</span></button>
       <button class="tab" data-view="settings"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span></button>
     </nav>
 
     <input type="file" id="pdfFileInput" accept=".pdf,application/pdf" hidden>
+    <input type="file" id="htmlFileInput" accept=".html,.htm,text/html" hidden>
 
     <div id="overlayRoot"></div>
     <div id="toastRoot"></div>

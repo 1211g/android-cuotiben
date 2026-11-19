@@ -16,7 +16,8 @@
     tags: ['月考', '期中', '压轴题', '高频错题'],
     theme: 'dark',
     hideMastered: false,
-    backupDir: 'Download/错题本备份',
+    autoDeleteZip: false,
+    backupDir: 'Download/Noteee备份',
     schema: SCHEMA
   };
 

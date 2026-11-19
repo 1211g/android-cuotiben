@@ -108,6 +108,35 @@
     return { width: vp.width, height: vp.height };
   }
 
+  /* Import a local HTML file as an offline document. Stored in the same
+     object store as PDFs, tagged with kind:'html' and a text payload. */
+  async function importHtml(file) {
+    if (!file) throw new Error('未选择文件');
+    const name = String(file.name || '');
+    if (!/\.html?$/i.test(name) && !/text\/html/i.test(file.type || '')) {
+      throw new Error('请选择 HTML 文件');
+    }
+    const MAX_HTML = 12 * 1024 * 1024;
+    if (file.size > MAX_HTML) throw new Error('HTML 太大（上限 12MB）');
+    let text;
+    if (typeof file.text === 'function') text = await file.text();
+    else text = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error);
+      fr.readAsText(file, 'utf-8');
+    });
+    const rec = {
+      id: (global.U && U.uid('doc')) || ('doc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
+      name: slug(name || '未命名.html'),
+      kind: 'html',
+      data: text,
+      size: file.size,
+      createdAt: Date.now()
+    };
+    await DB.putPdf(rec);
+    return rec;
+  }
+
   function checkResources() {
     const files = ['pdf.min.js', 'pdf.worker.min.js'];
     return Promise.all(files.map(async f => {
@@ -118,5 +147,5 @@
     }));
   }
 
-  global.Pdf = { ensureLib, importFile, loadDoc, renderPage, getPageSize, checkResources, PDF_BASE, MAX_PDF_BYTES };
+  global.Pdf = { ensureLib, importFile, importHtml, loadDoc, renderPage, getPageSize, checkResources, PDF_BASE, MAX_PDF_BYTES };
 })(window);

@@ -14,6 +14,7 @@ android/assets/www/
 android/cuotiben.jks
 *.idsig
 错题本-v1.0.0.apk
+Noteee-v1.0.1-签名版.apk
 
 # One-off verification / temp artifacts
 _*.py
