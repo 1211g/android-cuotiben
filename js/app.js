@@ -62,7 +62,7 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
-    // Restore persisted manage-group collapse state (v1.0.7).
+    // Restore persisted manage-group collapse state (v1.0.8).
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
@@ -222,7 +222,7 @@
     const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    // v1.0.7: drop descendant blur only for the duration of the enter
+    // v1.0.8: drop descendant blur only for the duration of the enter
     // animation so the GPU composites a pure transform+opacity layer.
     if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
@@ -1908,7 +1908,7 @@
     if (NV && typeof NV.listNovels === 'function') {
       try { novels = await NV.listNovels(); } catch (e) { novels = []; }
     }
-    // v1.0.7: the "导入 TXT 小说" button was removed from the novel shelf —
+    // v1.0.8: the "导入 TXT 小说" button was removed from the novel shelf —
     // importing TXT is now done from the bottom "+" button (导入 TXT 小说).
     if (!novels.length) {
       host.innerHTML = '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
@@ -1945,7 +1945,7 @@
     // pages are hash-routed SPA apps: on load they show #/home (nothing to
     // scroll) and the actual reading content only appears after navigating to
     // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.0.7: save/restore BOTH the location.hash and the scroll
+    // restored 0. v1.0.8: save/restore BOTH the location.hash and the scroll
     // percentage — restore the hash first (which triggers the SPA to build the
     // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
@@ -2154,7 +2154,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.0.7): prefer saved page, else ratio.
+    // Restore last reading position (v1.0.8): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2286,7 +2286,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.7 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.8 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2819,11 +2819,13 @@
           { icon: 'plus', title: '直接录入错题', desc: '拍照 / 相册 / 文字，手动录入一道', value: 'single' },
           { icon: 'layers', title: '批量导入错题', desc: '从 JSON / ZIP 文件一次导入多道（可含图片）', value: 'batch' },
           { icon: 'pdf', title: '导入 PDF', desc: '导入 PDF 学习资料，连续滚动阅读', value: 'pdf' },
+          { icon: 'note', title: '导入 HTML', desc: '打开本地 HTML 文档，离线阅读并记忆位置', value: 'html' },
           { icon: 'book', title: '导入 TXT 小说', desc: '导入 txt，番茄小说式离线阅读', value: 'txt' }
         ]
       });
       if (choice === 'batch') openBatchImport();
       else if (choice === 'pdf') doPromptPdfImport();
+      else if (choice === 'html') doPromptHtmlImport();
       else if (choice === 'txt') doPromptTxtImport();
       else if (choice === 'single') openEditor(null);
     };
@@ -2966,7 +2968,7 @@
         case 'toggle-collapse': {
           const ck = el.dataset.k;
           state.manageCollapsed[ck] = !state.manageCollapsed[ck];
-          // Persist so the expand/collapse state survives app restarts (v1.0.7).
+          // Persist so the expand/collapse state survives app restarts (v1.0.8).
           if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
           state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
           DB.putConfig(state.config);

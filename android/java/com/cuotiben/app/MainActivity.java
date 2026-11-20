@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
         s.setSupportZoom(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.7 (offline)");
+        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.8 (offline)");
 
         web.addJavascriptInterface(new Bridge(), "CuotiBridge");
 
