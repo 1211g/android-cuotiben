@@ -158,10 +158,24 @@ body.theme-light .glass::after{ background: linear-gradient(140deg, rgba(255,255
   position: absolute; inset: 0; display: none; flex-direction: column;
   padding-top: env(safe-area-inset-top);
 }
-.view.active{ display: flex; animation: viewIn .24s ease-out; will-change: opacity; }
-/* Opacity-only: transform on a subtree full of backdrop-filter cards forces
-   the GPU to re-composite every blurred layer on each frame (visible jank). */
-@keyframes viewIn{ from{ opacity: 0 } to{ opacity: 1 } }
+/* v1.0.6 high-FPS view transition: a subtle GPU-composited slide+fade.
+   During the enter window, descendant glass cards temporarily drop their
+   backdrop-filter (see .fx-enter below) so the GPU composites only transform
+   and opacity instead of re-blurring every card on every frame. Blur is
+   restored the moment the animation finishes — smooth AND still glassy. */
+.view.active{ display: flex; animation: viewIn .34s cubic-bezier(.22, 1, .36, 1) both; will-change: transform, opacity; backface-visibility: hidden; }
+@keyframes viewIn{ from{ opacity: 0; transform: translate3d(0, 16px, 0) scale(.988); } to{ opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+.view.fx-enter .qcard,
+.view.fx-enter .glass-card,
+.view.fx-enter .glyph,
+.view.fx-enter [data-glass],
+.view.entering .qcard,
+.view.entering .glass-card,
+.view.entering .glyph,
+.view.entering [data-glass]{
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 @media (prefers-reduced-motion: reduce){ .view.active{ animation: none; } }
 
 .topbar{ display: flex; align-items: center; gap: 12px; padding: 20px 22px 10px; flex: none; }
@@ -235,10 +249,11 @@ body.theme-light .glass::after{ background: linear-gradient(140deg, rgba(255,255
   box-shadow: inset 0 1px 0 var(--hi), 0 10px 28px rgba(0, 0, 0, .18);
   overflow: hidden;
   transition: transform .25s var(--ease), opacity .3s;
-  animation: cardIn .26s ease-out backwards;
+  animation: cardIn .34s var(--ease) backwards;
 }
-/* Opacity-only entrance keeps backdrop-filter cards from re-blurring per frame. */
-@keyframes cardIn{ from{ opacity: 0 } to{ opacity: 1 } }
+/* GPU-composited slide+fade. Blur is suppressed via .view.entering during the
+   parent view transition, so this transform never re-blurs per frame. */
+@keyframes cardIn{ from{ opacity: 0; transform: translate3d(0, 10px, 0); } to{ opacity: 1; transform: translate3d(0, 0, 0); } }
 @media (prefers-reduced-motion: reduce){ .qcard{ animation: none; } }
 .qcard::before{
   content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;

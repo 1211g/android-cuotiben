@@ -62,6 +62,10 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
+    // Restore persisted manage-group collapse state (v1.0.6).
+    if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
+      state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
+    }
     applyTheme(state.config.theme || 'dark');
     await refresh();
     bind();
@@ -215,8 +219,12 @@
      --------------------------------------------------------- */
   function setView(v) {
     state.view = v;
+    const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
+    // v1.0.6: drop descendant blur only for the duration of the enter
+    // animation so the GPU composites a pure transform+opacity layer.
+    if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
     else if (v === 'stats') renderStats();
     else if (v === 'pdf') renderPdfView();
@@ -1933,38 +1941,94 @@
       '<iframe id="hvFrame" class="html-frame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>' +
       '</div>', 'bottom', true);
     const fr = $('#hvFrame', ov);
-    // Restore last reading position (v1.0.5). We wrap the doc with a tiny
-    // script that reports scroll offsets to the host and restores on load.
-    const savedPct = (rec.progress && typeof rec.progress.pct === 'number') ? rec.progress.pct : 0;
-    let latestPct = savedPct, saveT;
-    // Single source of truth: the bridge inside the iframe reports real scroll
-    // percentage via postMessage. Avoids re-reading cross-origin contentDocument
-    // (which can be blocked) and avoids a stale read winning a debounce race.
+    // Reading position for HTML = { hash, pct }. Many real-world "handbook"
+    // pages are hash-routed SPA apps: on load they show #/home (nothing to
+    // scroll) and the actual reading content only appears after navigating to
+    // a chapter (#/chapter/...). Tracking only a scroll % therefore always
+    // restored 0. v1.0.6: save/restore BOTH the location.hash and the scroll
+    // percentage — restore the hash first (which triggers the SPA to build the
+    // chapter), then scroll once the content has height.
+    const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
+    const savedPct = typeof prog.pct === 'number' ? prog.pct : 0;
+    const savedHash = typeof prog.hash === 'string' ? prog.hash : '';
+    let latestPct = savedPct, latestHash = savedHash, saveT, restoreTimer, pollTimer;
     const flushHtmlProgress = () => {
       if (!rec.progress || typeof rec.progress !== 'object') rec.progress = {};
       rec.progress.pct = latestPct;
+      rec.progress.hash = latestHash;
       DB.putPdf(rec);
     };
-    const doc = String(rec.data || '');
-    const bridge = '<script>(function(){' +
-      'var saved=' + Number(savedPct) + ';' +
-      'function maxScroll(){var d=document.documentElement,b=document.body;return Math.max(1,Math.max(d.scrollHeight,b.scrollHeight)-window.innerHeight);}' +
-      'function restore(){try{window.scrollTo(0,saved*maxScroll());}catch(e){}}' +
-      'if(document.readyState==="complete")restore();else window.addEventListener("load",restore);' +
-      'var t;window.addEventListener("scroll",function(){clearTimeout(t);t=setTimeout(function(){' +
-      'try{parent.postMessage({__ctbHtmlScroll:1,pct:Math.min(1,Math.max(0,window.pageYOffset/maxScroll()))},"*");}catch(e){}}},200);},true);' +
-      '})();<\/script>';
-    // Insert the bridge before </body> when present, otherwise append it.
-    fr.srcdoc = /<\/body>/i.test(doc) ? doc.replace(/<\/body>/i, bridge + '</body>') : doc + bridge;
-    const onMsg = e => {
-      if (e.data && e.data.__ctbHtmlScroll === 1 && typeof e.data.pct === 'number') {
-        latestPct = e.data.pct;
+    // The iframe uses allow-same-origin, so we can read its DOM directly from
+    // the parent. Doing detection/restore/tracking here (instead of an injected
+    // postMessage bridge) is far more reliable for hash-routed SPA handbooks,
+    // whose real scroller is often an inner overflow container, not the window.
+    fr.srcdoc = String(rec.data || '');
+    const maxScroll = (sc, w, d) => sc === w
+      ? Math.max(0, Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0) - w.innerHeight)
+      : Math.max(0, sc.scrollHeight - sc.clientHeight);
+    const findScroller = (w, d) => {
+      let best = null, bestAmt = 24;
+      const all = d.querySelectorAll('*');
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
+        let oy = '';
+        try { oy = (w.getComputedStyle(el).overflowY) || ''; } catch (e) { continue; }
+        if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
+        const amt = el.scrollHeight - el.clientHeight;
+        if (amt > bestAmt && el.clientHeight > 80) { best = el; bestAmt = amt; }
+      }
+      if (best) return best;
+      if (Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0) - w.innerHeight > 24) return w;
+      return null;
+    };
+    const posOf = (sc, w, d) => sc === w ? (w.pageYOffset || d.documentElement.scrollTop || 0) : sc.scrollTop;
+    const setPos = (sc, w, p) => { try { if (sc === w) w.scrollTo(0, p); else sc.scrollTop = p; } catch (e) {} };
+
+    // Restore: wait for the SPA to build content, jump to the saved hash chapter
+    // first, then scroll to the saved percentage once the scroller has height.
+    let restoreTries = 0, restoreDone = !savedHash;
+    const tryRestore = () => {
+      if (restoreDone || restoreTries > 90) return;
+      restoreTries++;
+      let w, d;
+      try { w = fr.contentWindow; d = fr.contentDocument; } catch (e) { setTimeout(tryRestore, 120); return; }
+      if (!w || !d) { setTimeout(tryRestore, 120); return; }
+      // Hash-routed SPA: navigate to the saved chapter so its body is rendered.
+      if (savedHash && w.location.hash !== savedHash) {
+        try { w.location.hash = savedHash; } catch (e) {}
+        setTimeout(tryRestore, 140); return;
+      }
+      const sc = findScroller(w, d);
+      if (sc && maxScroll(sc, w, d) > 24) {
+        setPos(sc, w, savedPct * maxScroll(sc, w, d));
+        restoreDone = true;
+      } else {
+        setTimeout(tryRestore, 120);
+      }
+    };
+    restoreTimer = setInterval(tryRestore, 140);
+
+    // Track: poll the iframe DOM, persist {pct, hash} when either changes.
+    // Skip until restore finished, so a transient #/home frame can't overwrite
+    // the saved percentage with 0.
+    const track = () => {
+      if (!restoreDone) return;
+      let w, d;
+      try { w = fr.contentWindow; d = fr.contentDocument; } catch (e) { return; }
+      if (!w || !d) return;
+      const hash = w.location.hash || '';
+      const sc = findScroller(w, d);
+      const m = sc ? maxScroll(sc, w, d) : 0;
+      const pct = (sc && m > 0) ? Math.min(1, Math.max(0, posOf(sc, w, d) / m)) : 0;
+      if (hash !== latestHash || Math.abs(pct - latestPct) > 0.004) {
+        latestHash = hash; latestPct = pct;
         clearTimeout(saveT); saveT = setTimeout(flushHtmlProgress, 300);
       }
     };
-    window.addEventListener('message', onMsg);
+    pollTimer = setInterval(track, 600);
+
     const closeHtml = () => {
-      window.removeEventListener('message', onMsg);
+      clearInterval(restoreTimer); clearInterval(pollTimer);
       clearTimeout(saveT);
       flushHtmlProgress();
       closeOverlay(ov);
@@ -2090,7 +2154,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.0.5): prefer saved page, else ratio.
+    // Restore last reading position (v1.0.6): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2222,7 +2286,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.5 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.6 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2903,9 +2967,15 @@
         case 'cfg-add': cfgAdd(el.dataset.k); break;
         case 'cfg-edit': cfgEdit(el.dataset.k, +el.dataset.i); break;
         case 'cfg-del': cfgDelete(el.dataset.k, +el.dataset.i); break;
-        case 'toggle-collapse':
-          state.manageCollapsed[el.dataset.k] = !state.manageCollapsed[el.dataset.k];
+        case 'toggle-collapse': {
+          const ck = el.dataset.k;
+          state.manageCollapsed[ck] = !state.manageCollapsed[ck];
+          // Persist so the expand/collapse state survives app restarts (v1.0.6).
+          if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
+          state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
+          DB.putConfig(state.config);
           renderManage(); break;
+        }
         case 'mgr-filter': {
           const fk = el.dataset.fk, fv = el.dataset.fv;
           state.filters = { subject: [], qtype: [], mastery: [], cause: [], tags: [] };

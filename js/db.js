@@ -22,6 +22,8 @@
     // Fields listed here are hidden in the editor and detail view for that subject
     // (data is always kept). Useful when a subject uses images instead of a stem.
     hiddenFields: {},
+    // Manage-page group collapse state (persisted so it survives restarts).
+    manageCollapsed: { subjects: true, qtypes: true, causes: true, tags: true, fields: true },
     schema: SCHEMA
   };
 
