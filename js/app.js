@@ -62,7 +62,7 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
-    // Restore persisted manage-group collapse state (v1.0.6).
+    // Restore persisted manage-group collapse state (v1.0.7).
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
@@ -222,7 +222,7 @@
     const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    // v1.0.6: drop descendant blur only for the duration of the enter
+    // v1.0.7: drop descendant blur only for the duration of the enter
     // animation so the GPU composites a pure transform+opacity layer.
     if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
@@ -1908,14 +1908,14 @@
     if (NV && typeof NV.listNovels === 'function') {
       try { novels = await NV.listNovels(); } catch (e) { novels = []; }
     }
-    const importBar = '<div class="novel-import-bar"><button class="btn btn-primary" id="btnNovelImport">' + icon('plus') + ' 导入 TXT 小说</button>' +
-      '<div class="tiny">支持 .txt 文本，自动分章，像小说一样离线阅读</div></div>';
+    // v1.0.7: the "导入 TXT 小说" button was removed from the novel shelf —
+    // importing TXT is now done from the bottom "+" button (导入 TXT 小说).
     if (!novels.length) {
-      host.innerHTML = importBar + '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
-        '<span>点上方按钮导入 TXT 小说，自动识别章节，享受番茄小说式的阅读体验。</span></div>';
+      host.innerHTML = '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
+        '<span>点首页「＋」→「导入 TXT 小说」添加，自动识别章节，享受番茄小说式的阅读体验。</span></div>';
       return;
     }
-    host.innerHTML = importBar + '<div class="pdf-list">' + novels.map(n => {
+    host.innerHTML = '<div class="pdf-list">' + novels.map(n => {
       const prog = n.progress || {};
       const total = (n.chapters && n.chapters.length) || 1;
       const ch = (prog.chapter || 0) + 1;
@@ -1945,7 +1945,7 @@
     // pages are hash-routed SPA apps: on load they show #/home (nothing to
     // scroll) and the actual reading content only appears after navigating to
     // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.0.6: save/restore BOTH the location.hash and the scroll
+    // restored 0. v1.0.7: save/restore BOTH the location.hash and the scroll
     // percentage — restore the hash first (which triggers the SPA to build the
     // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
@@ -2154,7 +2154,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.0.6): prefer saved page, else ratio.
+    // Restore last reading position (v1.0.7): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2286,7 +2286,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.6 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.7 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2540,9 +2540,9 @@
 
       '<div class="section-label" style="margin-top:20px">选择文件</div>' +
       '<div class="batch-pick">' +
-      '<button class="btn btn-ghost btn-sm" id="btPick">' + icon('upload') + ' 选择 .zip / .json / .csv / .txt</button>' +
+      '<button class="btn btn-ghost btn-sm" id="btPick">' + icon('upload') + ' 选择 .zip / .json</button>' +
       '<button class="btn btn-ghost btn-sm" id="btClip">' + icon('copy') + ' 从剪贴板</button>' +
-      '<input type="file" id="batchFile" accept=".zip,.json,.csv,.txt,application/zip,application/json,text/csv,text/plain" hidden>' +
+      '<input type="file" id="batchFile" accept=".zip,.json,application/zip,application/json" hidden>' +
       '</div>' +
 
       '<div class="field mt14"><div class="field-label">或直接粘贴内容 <span class="hint">粘贴后点「解析预览」</span></div>' +
@@ -2847,8 +2847,6 @@
 
     // 资料页「资料 / 小说」切换
     $$('.doc-tabs button').forEach(b => b.onclick = () => { haptic(); switchDocTab(b.dataset.doctab); });
-    const novelImportBtn = $('#btnNovelImport');
-    if (novelImportBtn) novelImportBtn.onclick = () => { haptic(); doPromptTxtImport(); };
     $('#btnFilter').onclick = openFilterSheet;
     $('#btnSort').onclick = openSortSheet;
     $('#btnBatch').onclick = () => { haptic(); openBatchImport(); };
@@ -2912,8 +2910,6 @@
           renderNovelView();
           return;
         }
-        const imp = e.target.closest('#btnNovelImport');
-        if (imp) { haptic(); doPromptTxtImport(); return; }
         const row = e.target.closest('.novel-row');
         if (row) {
           const NV = globalNovel();
@@ -2970,7 +2966,7 @@
         case 'toggle-collapse': {
           const ck = el.dataset.k;
           state.manageCollapsed[ck] = !state.manageCollapsed[ck];
-          // Persist so the expand/collapse state survives app restarts (v1.0.6).
+          // Persist so the expand/collapse state survives app restarts (v1.0.7).
           if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
           state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
           DB.putConfig(state.config);

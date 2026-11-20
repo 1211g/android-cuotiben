@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
         s.setSupportZoom(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.6 (offline)");
+        s.setUserAgentString(s.getUserAgentString() + " Noteee/1.0.7 (offline)");
 
         web.addJavascriptInterface(new Bridge(), "CuotiBridge");
 
@@ -238,19 +238,22 @@ public class MainActivity extends Activity {
         } else {
             intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            /* Build the MIME allow-list from the page's <input accept> so every
-               document type works: PDF import, ZIP backup restore, JSON/CSV
-               batch import, ... The previous branch used a hard-coded whitelist
-               that omitted application/pdf, so the native picker filtered all
-               PDFs out and "import PDF" could not select any file. */
+            /* v1.0.7: filter the picker to exactly the types this <input> accepts.
+               PDF import -> only PDFs, TXT import -> only TXT, batch import ->
+               only ZIP/JSON, backup restore -> only ZIP. The previous version
+               used an unfiltered wildcard type for every document because OEM
+               file managers hid local .html files; that special case is kept
+               below for HTML inputs only. */
             String[] accepts = params.getAcceptTypes();
             boolean wantsImages = false;
+            boolean wantsHtml = false;
             List<String> mimes = new ArrayList<String>();
             if (accepts != null) {
                 for (String a : accepts) {
                     if (a == null) continue;
                     String t = a.trim().toLowerCase(Locale.US);
                     if (t.isEmpty() || "*/*".equals(t)) continue;
+                    if (t.contains("html") || t.contains(".htm")) { wantsHtml = true; continue; }
                     if (t.contains("image")) { wantsImages = true; continue; }
                     if (t.startsWith(".")) {
                         String mime = mimeForExtension(t);
@@ -265,14 +268,20 @@ public class MainActivity extends Activity {
             if (wantsImages && mimes.isEmpty()) {
                 intent.setType("image/*");
                 title = "选择图片";
+            } else if (wantsHtml) {
+                /* Local .html/.htm files are frequently NOT indexed as
+                   text/html by OEM file managers — keep HTML chooser
+                   unfiltered so the user's offline manuals always appear. */
+                intent.setType("*/*");
+                title = "选择文件";
+            } else if (mimes.size() == 1) {
+                intent.setType(mimes.get(0));
+                title = "选择文件";
+            } else if (mimes.size() > 1) {
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
+                title = "选择文件";
             } else {
-                /* Show ALL files with a wildcard type intent — do not attach
-                   EXTRA_MIME_TYPES. Several Android/OEM pickers either do not
-                   index local .html/.htm files as "text/html" or treat the MIME
-                   extras as an AND filter, so HTML (and sometimes other doc
-                   types) never appeared in the chooser. The web layer already
-                   validates extension + magic bytes on import, so letting the
-                   user see every file is safe and guarantees HTML shows up. */
                 intent.setType("*/*");
                 title = "选择文件";
             }
