@@ -27,7 +27,8 @@
     coverCache: new Map(),
     docTab: 'docs',          // 'docs' | 'novels' inside the 资料 view
     manageTagSubject: '',    // '' = all subjects; tag list filtered by this subject in 管理
-    manageFieldSubject: ''   // '' = first subject; which subject's field visibility is being edited
+    manageFieldSubject: '',  // '' = first subject; which subject's field visibility is being edited
+    manageCollapsed: { subjects: true, qtypes: true, causes: true, tags: true, fields: true }
   };
 
   // Which content fields are hidden for a given subject (data is always kept).
@@ -1634,6 +1635,7 @@
         });
         entries = entries.filter(e => used.has(e.v));
       }
+      const FILTER_KEY = { subjects: 'subject', qtypes: 'qtype', causes: 'cause', tags: 'tags' };
       const rows = entries.map(({ v, i }) => {
         const used = k === 'subjects' ? state.questions.filter(q => q.subject === v).length
           : k === 'qtypes' ? state.questions.filter(q => q.qtype === v).length
@@ -1641,8 +1643,9 @@
               : state.questions.filter(q => (q.tags || []).includes(v)).length;
         return '<div class="grow">' +
           '<div class="grow-ic">' + icon(meta.icon) + '</div>' +
-          '<div class="grow-main"><div class="grow-title">' + esc(v) + '</div>' +
-          '<div class="grow-sub">' + used + ' 道错题使用</div></div>' +
+          '<div class="grow-main mgr-filter" data-act="mgr-filter" data-fk="' + FILTER_KEY[k] + '" data-fv="' + esc(v) + '" title="点此查看该' + meta.title.replace('管理', '') + '的错题">' +
+          '<div class="grow-title">' + esc(v) + '</div>' +
+          '<div class="grow-sub">' + used + ' 道错题 · 点击查看</div></div>' +
           '<div class="grow-acts">' +
           '<button data-act="cfg-edit" data-k="' + k + '" data-i="' + i + '" title="重命名">' + icon('edit') + '</button>' +
           '<button class="del" data-act="cfg-del" data-k="' + k + '" data-i="' + i + '" title="删除">' + icon('trash') + '</button>' +
@@ -1650,15 +1653,19 @@
       }).join('');
       const hiddenNote = (k === 'tags' && state.manageTagSubject)
         ? '<div class="tiny mt8" style="padding:0 4px">当前仅显示「' + esc(state.manageTagSubject) + '」科目错题用到的标签，点「全部科目」恢复。</div>' : '';
-      html += '<div class="group">' +
-        '<div class="group-head">' + icon(meta.icon) + '<h3>' + meta.title + '</h3>' +
+      const collapsed = !!state.manageCollapsed[k];
+      html += '<div class="group' + (collapsed ? ' collapsed' : '') + '" data-gk="' + k + '">' +
+        '<div class="group-head">' +
+        '<button class="collapse-toggle" data-act="toggle-collapse" data-k="' + k + '" aria-label="展开/收起">' + icon('chev-right') + '</button>' +
+        icon(meta.icon) + '<h3>' + meta.title + '</h3>' +
         '<span class="cnt">' + (k === 'tags' && state.manageTagSubject ? entries.length + '/' + cfg[k].length : cfg[k].length) + '</span>' +
         '<button class="add" data-act="cfg-add" data-k="' + k + '">' + icon('plus') + ' 新增</button></div>' +
+        '<div class="group-body">' +
         subjectBar +
         '<div class="glist">' + (rows || '<div class="grow"><div class="grow-main"><div class="grow-sub">' +
           (k === 'tags' && state.manageTagSubject ? '该科目暂无错题使用任何标签' : '暂无项目，点「新增」添加') + '</div></div></div>') + '</div>' +
         (hiddenNote || '<div class="tiny mt8" style="padding:0 4px">' + meta.hint + '</div>') +
-        '</div>';
+        '</div></div>';
     });
 
     // 科目字段显示：为不同科目控制录入/详情中显示哪些字段（图片替代题干等场景）
@@ -1673,12 +1680,16 @@
         '<div class="grow-sub">' + (fieldHidden(cur, f.key) ? '已隐藏 · 录入与详情均不显示' : '正常显示') + '</div></div>' +
         '<div class="grow-acts"><div class="switch ' + (fieldHidden(cur, f.key) ? 'on' : '') +
         '" data-act="toggle-field" data-f="' + f.key + '"><i></i></div></div></div>').join('');
-      html += '<div class="group field-vis-group">' +
-        '<div class="group-head">' + icon('eye') + '<h3>科目字段显示</h3></div>' +
+      const fieldCollapsed = !!state.manageCollapsed.fields;
+      html += '<div class="group field-vis-group' + (fieldCollapsed ? ' collapsed' : '') + '" data-gk="fields">' +
+        '<div class="group-head">' +
+        '<button class="collapse-toggle" data-act="toggle-collapse" data-k="fields" aria-label="展开/收起">' + icon('chev-right') + '</button>' +
+        icon('eye') + '<h3>科目字段显示</h3></div>' +
+        '<div class="group-body">' +
         '<div class="tiny" style="padding:0 4px 8px">选择科目后，可隐藏该科目录入页与详情页的字段（数据仍保留）。适合用图片替代题干的题目。</div>' +
         '<div class="tag-subject-bar">' + subjChips + '</div>' +
         '<div class="glist">' + fieldRows + '</div>' +
-        '</div>';
+        '</div></div>';
     }
 
     $('#manageBody').innerHTML = html;
@@ -1922,9 +1933,44 @@
       '<iframe id="hvFrame" class="html-frame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>' +
       '</div>', 'bottom', true);
     const fr = $('#hvFrame', ov);
-    fr.srcdoc = String(rec.data || '');
-    $('#hvClose', ov).onclick = () => closeOverlay(ov);
-    $('.overlay-mask', ov).onclick = () => closeOverlay(ov);
+    // Restore last reading position (v1.0.5). We wrap the doc with a tiny
+    // script that reports scroll offsets to the host and restores on load.
+    const savedPct = (rec.progress && typeof rec.progress.pct === 'number') ? rec.progress.pct : 0;
+    let latestPct = savedPct, saveT;
+    // Single source of truth: the bridge inside the iframe reports real scroll
+    // percentage via postMessage. Avoids re-reading cross-origin contentDocument
+    // (which can be blocked) and avoids a stale read winning a debounce race.
+    const flushHtmlProgress = () => {
+      if (!rec.progress || typeof rec.progress !== 'object') rec.progress = {};
+      rec.progress.pct = latestPct;
+      DB.putPdf(rec);
+    };
+    const doc = String(rec.data || '');
+    const bridge = '<script>(function(){' +
+      'var saved=' + Number(savedPct) + ';' +
+      'function maxScroll(){var d=document.documentElement,b=document.body;return Math.max(1,Math.max(d.scrollHeight,b.scrollHeight)-window.innerHeight);}' +
+      'function restore(){try{window.scrollTo(0,saved*maxScroll());}catch(e){}}' +
+      'if(document.readyState==="complete")restore();else window.addEventListener("load",restore);' +
+      'var t;window.addEventListener("scroll",function(){clearTimeout(t);t=setTimeout(function(){' +
+      'try{parent.postMessage({__ctbHtmlScroll:1,pct:Math.min(1,Math.max(0,window.pageYOffset/maxScroll()))},"*");}catch(e){}}},200);},true);' +
+      '})();<\/script>';
+    // Insert the bridge before </body> when present, otherwise append it.
+    fr.srcdoc = /<\/body>/i.test(doc) ? doc.replace(/<\/body>/i, bridge + '</body>') : doc + bridge;
+    const onMsg = e => {
+      if (e.data && e.data.__ctbHtmlScroll === 1 && typeof e.data.pct === 'number') {
+        latestPct = e.data.pct;
+        clearTimeout(saveT); saveT = setTimeout(flushHtmlProgress, 300);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    const closeHtml = () => {
+      window.removeEventListener('message', onMsg);
+      clearTimeout(saveT);
+      flushHtmlProgress();
+      closeOverlay(ov);
+    };
+    $('#hvClose', ov).onclick = closeHtml;
+    $('.overlay-mask', ov).onclick = closeHtml;
   }
 
   async function openPdfViewer(id) {
@@ -2044,8 +2090,28 @@
       renderVisible(); updateActive();
     }
 
+    // Restore last reading position (v1.0.5): prefer saved page, else ratio.
+    if (rec && rec.progress && typeof rec.progress === 'object') {
+      const savedPage = rec.progress.page;
+      const savedRatio = rec.progress.ratio;
+      requestAnimationFrame(() => {
+        if (destroyed) return;
+        if (savedPage >= 1 && savedPage <= total) gotoPage(savedPage);
+        else if (typeof savedRatio === 'number' && scroll.scrollHeight) scroll.scrollTop = Math.round(savedRatio * scroll.scrollHeight);
+        updateActive(); renderVisible();
+      });
+    }
+
     const close = () => {
       destroyed = true;
+      if (rec) {
+        try {
+          if (!rec.progress || typeof rec.progress !== 'object') rec.progress = {};
+          rec.progress.page = activePage;
+          rec.progress.ratio = scroll.scrollHeight ? scroll.scrollTop / scroll.scrollHeight : 0;
+          DB.putPdf(rec);
+        } catch (e) { }
+      }
       window.removeEventListener('resize', onResize);
       closeOverlay(ov);
       try { doc.destroy(); } catch (e) { }
@@ -2156,7 +2222,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.4 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.5 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2688,11 +2754,13 @@
         options: [
           { icon: 'plus', title: '直接录入错题', desc: '拍照 / 相册 / 文字，手动录入一道', value: 'single' },
           { icon: 'layers', title: '批量导入错题', desc: '从 JSON / ZIP 文件一次导入多道（可含图片）', value: 'batch' },
-          { icon: 'pdf', title: '导入资料', desc: '导入 PDF / 本地 HTML / TXT 小说，离线查看', value: 'pdf' }
+          { icon: 'pdf', title: '导入 PDF', desc: '导入 PDF 学习资料，连续滚动阅读', value: 'pdf' },
+          { icon: 'book', title: '导入 TXT 小说', desc: '导入 txt，番茄小说式离线阅读', value: 'txt' }
         ]
       });
       if (choice === 'batch') openBatchImport();
-      else if (choice === 'pdf') doPromptDocImport();
+      else if (choice === 'pdf') doPromptPdfImport();
+      else if (choice === 'txt') doPromptTxtImport();
       else if (choice === 'single') openEditor(null);
     };
     $('#btnTheme').onclick = () => setTheme(state.config.theme === 'dark' ? 'light' : 'dark');
@@ -2835,6 +2903,22 @@
         case 'cfg-add': cfgAdd(el.dataset.k); break;
         case 'cfg-edit': cfgEdit(el.dataset.k, +el.dataset.i); break;
         case 'cfg-del': cfgDelete(el.dataset.k, +el.dataset.i); break;
+        case 'toggle-collapse':
+          state.manageCollapsed[el.dataset.k] = !state.manageCollapsed[el.dataset.k];
+          renderManage(); break;
+        case 'mgr-filter': {
+          const fk = el.dataset.fk, fv = el.dataset.fv;
+          state.filters = { subject: [], qtype: [], mastery: [], cause: [], tags: [] };
+          if (fk && fv) {
+            if (fk === 'tags') state.filters.tags = [fv];
+            else if (state.filters[fk]) state.filters[fk] = [fv];
+          }
+          state.search = '';
+          const si = $('#searchInput'); if (si) si.value = '';
+          setView('home');
+          toast('已筛选「' + fv + '」的错题', 'info');
+          break;
+        }
         case 'tag-subject':
           state.manageTagSubject = el.dataset.v || '';
           renderManage(); break;

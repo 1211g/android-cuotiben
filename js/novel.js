@@ -145,6 +145,7 @@
     let closed = false;
     const cleanups = [];
     let pages = [];        // pages[chapterIdx] = [htmlPage0, htmlPage1, ...]
+    const paginated = new Set();   // 已分页的章节索引集合（懒分页：只在需要时分页当前章）
     let resizeTimer = null;
 
     const root = document.createElement('div');
@@ -208,7 +209,9 @@
       font = Math.min(FONT_MAX, Math.max(FONT_MIN, v));
       font = FONT_MIN + Math.round((font - FONT_MIN) / FONT_STEP) * FONT_STEP;
       applyFont(); saveFont(font);
-      paginate(); renderPage(null); U.haptic(8);
+      // 字号变化会影响分页：清空全部缓存，只重分页当前章，其他章切到时自然重排
+      pages.length = 0; paginated.clear();
+      ensureChapter(cur); renderPage(null); U.haptic(8);
     }
     function cycleTheme() {
       theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
@@ -217,41 +220,45 @@
       U.haptic(8);
     }
 
-    /* 把整章正文按内容区高度切成多页（隐藏测量容器逐段量高）。 */
-    function paginate() {
-      pages = [];
+    /* 只分页第 ci 章：把该章正文按内容区高度切成多页（隐藏测量容器逐段量高），懒分页。 */
+    function paginateChapter(ci) {
+      const ch = chapters[ci];
+      if (!ch) { pages[ci] = []; paginated.add(ci); return; }
       const cs = getComputedStyle(content);
       const padT = parseFloat(cs.paddingTop) || 0;
       const padB = parseFloat(cs.paddingBottom) || 0;
       const avail = Math.max(120, content.clientHeight - padT - padB);
 
-      chapters.forEach(function (ch, ci) {
-        const start = Math.max(0, ch.start | 0);
-        const end = Math.min(data.length, ch.end | 0);
-        const raw = data.slice(start, end > start ? end : start);
-        const paras = raw.split(/\r\n|\r|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-        const titleHtml = '<p class="nv-chapter-title">' + U.esc(ch.title || ('第 ' + (ci + 1) + ' 章')) + '</p>';
-        const bodyHtml = paras.map(function (p) { return '<p class="nv-para">' + U.esc(p) + '</p>'; }).join('');
-        measure.innerHTML = titleHtml + (bodyHtml || '<p class="nv-para">（本章暂无内容）</p>');
-        const nodes = Array.prototype.slice.call(measure.children);
-        const out = [];
-        let curHtml = [];
-        let baseTop = nodes.length ? nodes[0].offsetTop : 0;
-        nodes.forEach(function (el) {
-          const bottom = el.offsetTop + el.offsetHeight;
-          if (curHtml.length && (bottom - baseTop) > avail) {
-            out.push(curHtml.join(''));
-            curHtml = [];
-            baseTop = el.offsetTop;
-          }
-          curHtml.push(el.outerHTML);
-        });
-        if (curHtml.length) out.push(curHtml.join(''));
-        if (!out.length) out.push(titleHtml);
-        pages[ci] = out;
+      const start = Math.max(0, ch.start | 0);
+      const end = Math.min(data.length, ch.end | 0);
+      const raw = data.slice(start, end > start ? end : start);
+      const paras = raw.split(/\r\n|\r|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      const titleHtml = '<p class="nv-chapter-title">' + U.esc(ch.title || ('第 ' + (ci + 1) + ' 章')) + '</p>';
+      const bodyHtml = paras.map(function (p) { return '<p class="nv-para">' + U.esc(p) + '</p>'; }).join('');
+      measure.innerHTML = titleHtml + (bodyHtml || '<p class="nv-para">（本章暂无内容）</p>');
+      const nodes = Array.prototype.slice.call(measure.children);
+      const out = [];
+      let curHtml = [];
+      let baseTop = nodes.length ? nodes[0].offsetTop : 0;
+      nodes.forEach(function (el) {
+        const bottom = el.offsetTop + el.offsetHeight;
+        if (curHtml.length && (bottom - baseTop) > avail) {
+          out.push(curHtml.join(''));
+          curHtml = [];
+          baseTop = el.offsetTop;
+        }
+        curHtml.push(el.outerHTML);
       });
-      const cp = pages[cur] || [];
-      if (curPage >= cp.length) curPage = Math.max(0, cp.length - 1);
+      if (curHtml.length) out.push(curHtml.join(''));
+      if (!out.length) out.push(titleHtml);
+      pages[ci] = out;
+      paginated.add(ci);
+    }
+
+    /* 确保第 ci 章已分页并返回其页数组（未分页则先分页），懒分页入口。 */
+    function ensureChapter(ci) {
+      if (!paginated.has(ci)) paginateChapter(ci);
+      return pages[ci] || [];
     }
 
     function persist() {
@@ -267,7 +274,7 @@
       content.classList.add(dir === 'next' ? 'nv-flip-next' : 'nv-flip-prev');
     }
     function renderPage(animDir) {
-      const cp = pages[cur] || [];
+      const cp = ensureChapter(cur);
       if (curPage < 0) curPage = 0;
       if (curPage >= cp.length) curPage = Math.max(0, cp.length - 1);
       content.innerHTML = cp[curPage] || '<p class="nv-para">（本章暂无内容）</p>';
@@ -280,7 +287,7 @@
     }
     /* dir: 1 下一页 / -1 上一页。章内翻页，跨章到该章首页/末页。 */
     function turnPage(dir) {
-      const cp = pages[cur] || [];
+      const cp = ensureChapter(cur);
       const last = Math.max(0, cp.length - 1);
       let nc = cur, np = curPage;
       if (dir > 0) {
@@ -289,8 +296,12 @@
         else { U.toast('已经是最后一页', 'info'); return; }
       } else {
         if (curPage > 0) np = curPage - 1;
-        else if (cur > 0) { nc = cur - 1; np = Math.max(0, (pages[cur - 1] || []).length - 1); }
+        else if (cur > 0) { nc = cur - 1; np = 0; }
         else { U.toast('已经是第一页', 'info'); return; }
+      }
+      if (nc !== cur) {
+        const ncp = ensureChapter(nc);   // 切章前先分页目标章，用它的页数定边界
+        if (dir < 0) np = Math.max(0, ncp.length - 1);   // 往上一章则跳到末页
       }
       cur = nc; curPage = np;
       renderPage(dir > 0 ? 'next' : 'prev');
@@ -299,6 +310,7 @@
     function goChapter(idx) {
       const next = Math.min(total - 1, Math.max(0, Math.floor(Number(idx) || 0)));
       cur = next; curPage = 0;
+      ensureChapter(next);
       renderPage(null); persist(); U.haptic(8);
     }
 
@@ -342,10 +354,12 @@
 
     applyFont(); applyTheme(); applyImmersive();
     buildCatalog();
-    // Must attach to the DOM BEFORE paginate(): clientHeight/offsetTop/offsetHeight
-    // are all 0 while detached, which would collapse every chapter into a single page.
+    // 必须先挂载到 DOM 再分页：脱离 DOM 时 clientHeight/offsetTop/offsetHeight 全为 0，
+    // 会把每章压成单页。这里只分页当前章（懒分页），打开超大文件不再做全量布局。
     host.appendChild(root);
-    paginate();
+    ensureChapter(cur);
+    const cpInit = pages[cur] || [];
+    if (curPage >= cpInit.length) curPage = Math.max(0, cpInit.length - 1);
     renderPage(null);
     if (U.enterSheet) U.enterSheet(reader);
 
@@ -370,26 +384,26 @@
     });
 
     /* 左右滑动翻页（水平手势）+ 点击左右侧翻页 / 点击中部切换沉浸。 */
-    let lastTouchEnd = 0;
-    let tsX = 0, tsY = 0, tsT = 0, swiping = false;
+    let tsX = 0, tsY = 0, tsT = 0, swiping = false, didSwipe = false;
     content.addEventListener('touchstart', function (e) {
+      didSwipe = false;   // 每次触摸开始重置滑动标记，单击也能可靠触发 click 处理
       if (e.touches.length !== 1) { swiping = false; return; }
       tsX = e.touches[0].clientX; tsY = e.touches[0].clientY; tsT = Date.now(); swiping = true;
     }, { passive: true });
     content.addEventListener('touchcancel', function () { swiping = false; }, { passive: true });
     content.addEventListener('touchend', function (e) {
-      lastTouchEnd = Date.now();
       if (!swiping || !e.changedTouches || !e.changedTouches.length) return;
       swiping = false;
       const dx = e.changedTouches[0].clientX - tsX;
       const dy = e.changedTouches[0].clientY - tsY;
       const dt = Date.now() - tsT;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 1000) {
+        didSwipe = true;   // 真的发生了水平滑动，稍后抑制随之而来的幽灵 click
         turnPage(dx < 0 ? 1 : -1);
       }
     }, { passive: true });
     content.addEventListener('click', function (e) {
-      if (Date.now() - lastTouchEnd < 400) return;
+      if (didSwipe) { didSwipe = false; return; }   // 只吞掉滑动后浏览器补发的幽灵 click
       const r = content.getBoundingClientRect();
       if (!r.height) return;
       const y = (e.clientY - r.top) / r.height;
@@ -402,7 +416,11 @@
 
     function onResize() {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(function () { paginate(); renderPage(null); }, 200);
+      resizeTimer = setTimeout(function () {
+        // 尺寸变化会影响分页：清空全部缓存，只重分页当前章
+        pages.length = 0; paginated.clear();
+        ensureChapter(cur); renderPage(null);
+      }, 200);
     }
     global.addEventListener('resize', onResize);
     cleanups.push(function () {

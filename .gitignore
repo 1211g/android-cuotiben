@@ -10,14 +10,11 @@ android-studio/.idea/
 android-studio/local.properties
 android/assets/www/
 
-# Signing material & redundant copies (do not publish private key / duplicate APK)
+# Signing material & duplicate/old APK copies (do not publish private key)
 android/cuotiben.jks
 *.idsig
 错题本-v1.0.0.apk
-Noteee-v1.0.1-签名版.apk
-Noteee-v1.0.2-签名版.apk
-Noteee-v1.0.3-签名版.apk
-Noteee-v1.0.4-签名版.apk
+Noteee-v1.0.*-签名版.apk
 
 # One-off verification / temp artifacts
 _*.py
