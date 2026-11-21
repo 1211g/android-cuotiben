@@ -62,7 +62,7 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
-    // Restore persisted manage-group collapse state (v1.0.8).
+    // Restore persisted manage-group collapse state (v1.0.9).
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
@@ -222,7 +222,7 @@
     const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    // v1.0.8: drop descendant blur only for the duration of the enter
+    // v1.0.9: drop descendant blur only for the duration of the enter
     // animation so the GPU composites a pure transform+opacity layer.
     if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
@@ -1908,7 +1908,7 @@
     if (NV && typeof NV.listNovels === 'function') {
       try { novels = await NV.listNovels(); } catch (e) { novels = []; }
     }
-    // v1.0.8: the "导入 TXT 小说" button was removed from the novel shelf —
+    // v1.0.9: the "导入 TXT 小说" button was removed from the novel shelf —
     // importing TXT is now done from the bottom "+" button (导入 TXT 小说).
     if (!novels.length) {
       host.innerHTML = '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
@@ -1945,7 +1945,7 @@
     // pages are hash-routed SPA apps: on load they show #/home (nothing to
     // scroll) and the actual reading content only appears after navigating to
     // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.0.8: save/restore BOTH the location.hash and the scroll
+    // restored 0. v1.0.9: save/restore BOTH the location.hash and the scroll
     // percentage — restore the hash first (which triggers the SPA to build the
     // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
@@ -1984,9 +1984,13 @@
     const posOf = (sc, w, d) => sc === w ? (w.pageYOffset || d.documentElement.scrollTop || 0) : sc.scrollTop;
     const setPos = (sc, w, p) => { try { if (sc === w) w.scrollTo(0, p); else sc.scrollTop = p; } catch (e) {} };
 
-    // Restore: wait for the SPA to build content, jump to the saved hash chapter
-    // first, then scroll to the saved percentage once the scroller has height.
-    let restoreTries = 0, restoreDone = !savedHash;
+    // Restore: wait for the document to have scrollable height, jump to the
+    // saved hash chapter first (hash-routed SPA handbooks), then scroll to the
+    // saved percentage. v1.0.9 fix: a restore is needed whenever there IS a
+    // saved position — either a hash OR a non-trivial scroll percentage. The
+    // old `restoreDone = !savedHash` skipped ALL plain long documents (no hash
+    // routes), which is why a swapped-in normal HTML never remembered its spot.
+    let restoreTries = 0, restoreDone = !(savedHash || savedPct > 0.001);
     const tryRestore = () => {
       if (restoreDone || restoreTries > 90) return;
       restoreTries++;
@@ -2154,7 +2158,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.0.8): prefer saved page, else ratio.
+    // Restore last reading position (v1.0.9): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2286,7 +2290,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.8 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.0.9 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2968,7 +2972,7 @@
         case 'toggle-collapse': {
           const ck = el.dataset.k;
           state.manageCollapsed[ck] = !state.manageCollapsed[ck];
-          // Persist so the expand/collapse state survives app restarts (v1.0.8).
+          // Persist so the expand/collapse state survives app restarts (v1.0.9).
           if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
           state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
           DB.putConfig(state.config);
