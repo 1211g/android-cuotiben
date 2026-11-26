@@ -436,6 +436,9 @@ body.theme-amber-light .glass::after, body.theme-ocean-light .glass::after{ back
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+/* A page that just slid in via swipe is already fully in place — suppress
+   the generic viewIn fade so it doesn't flash/fade again after landing. */
+.view.swipe-landed.active{ animation: none !important; }
 @media (prefers-reduced-motion: reduce){ .view.active{ animation: none; } }
 
 /* v1.1.3 — WeChat-style follow-the-finger swipe. During a horizontal drag
@@ -444,6 +447,11 @@ body.theme-amber-light .glass::after, body.theme-ocean-light .glass::after{ back
    two screens move as one continuous strip. On release a .22s ease either
    completes the page turn or snaps back. Only transform is animated. */
 #views.swiping{ overflow: hidden; }
+/* Critical: .view.active carries the viewIn animation with fill-mode:both,
+   whose final transform keyframe overrides inline transforms. Kill it during
+   the drag so both pages follow the finger via inline transform (no overlap). */
+#views.swiping .view.active,
+#views.swiping .view.swipe-peek{ animation: none !important; }
 .view.swipe-peek{ display: flex !important; z-index: 1; pointer-events: none; }
 .view.swipe-peek, .view.active{ will-change: transform; }
 /* same-view 资料/小说 sub-tab: the two bodies are temporarily absolutely
