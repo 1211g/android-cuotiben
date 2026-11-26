@@ -62,13 +62,14 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
-    // Restore persisted manage-group collapse state (v1.0.9).
+    // Restore persisted manage-group collapse state (v1.1.0).
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
     applyTheme(state.config.theme || 'dark');
     await refresh();
     bind();
+    installSwipeNavigation();
     setView('home');
     updateGreeting();
     if (DB.isMemory()) toast('本地数据库不可用，数据仅本次会话有效', 'err');
@@ -93,15 +94,32 @@
     state.imageCount = (imgs || []).length;
   }
 
+  // v1.1.0: preset liquid-glass colorways. Each has a dark and a light variant;
+  // `base` is the classic purple/blue theme, `light: true` marks light variants
+  // (for status-bar icon color + theme-color meta).
+  const THEMES = {
+    dark:        { label: '深空紫', light: false, meta: '#0b1020' },
+    light:       { label: '云海蓝', light: true,  meta: '#e8edfb' },
+    mint:        { label: '薄荷绿', light: false, meta: '#061410' },
+    'mint-light':{ label: '淡绿',   light: true,  meta: '#e6f4ea' },
+    rose:        { label: '玫红',   light: false, meta: '#130a17' },
+    'rose-light':{ label: '浅樱粉', light: true,  meta: '#fbeaf3' },
+    amber:       { label: '琥珀橙', light: false, meta: '#170e08' },
+    'amber-light':{label: '浅暖橘', light: true,  meta: '#fdf2e5' },
+    ocean:       { label: '深海蓝', light: false, meta: '#06131d' },
+    'ocean-light':{label: '浅海蓝', light: true,  meta: '#e6f4fa' }
+  };
   function applyTheme(t) {
-    document.body.className = 'theme-' + (t === 'light' ? 'light' : 'dark');
+    if (!THEMES[t]) t = 'dark';
+    const def = THEMES[t];
+    document.body.className = 'theme-' + t;
     const meta = $('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'light' ? '#e8edfb' : '#0b1020');
+    if (meta) meta.setAttribute('content', def.meta);
     const btn = $('#btnTheme');
-    if (btn) btn.innerHTML = icon(t === 'light' ? 'sun' : 'moon');
+    if (btn) btn.innerHTML = icon(def.light ? 'sun' : 'moon');
     // Native WebView shell: keep status-bar icons readable in both themes.
     if (window.CuotiBridge && window.CuotiBridge.setLightStatusBar) {
-      try { window.CuotiBridge.setLightStatusBar(t === 'light'); } catch (e) { }
+      try { window.CuotiBridge.setLightStatusBar(def.light); } catch (e) { }
     }
   }
 
@@ -222,7 +240,7 @@
     const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    // v1.0.9: drop descendant blur only for the duration of the enter
+    // v1.1.0: drop descendant blur only for the duration of the enter
     // animation so the GPU composites a pure transform+opacity layer.
     if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
@@ -230,6 +248,63 @@
     else if (v === 'pdf') renderPdfView();
     else if (v === 'manage') renderManage();
     else if (v === 'settings') renderSettings();
+  }
+
+  // v1.1.0: horizontal swipe navigation across the main screens. The 资料
+  // view has two sub-tabs (资料 / 小说) that count as separate stops, so the
+  // sequence is home -> pdf/docs -> pdf/novels -> manage -> settings.
+  const SWIPE_SEQ = [
+    { view: 'home' },
+    { view: 'pdf', docTab: 'docs' },
+    { view: 'pdf', docTab: 'novels' },
+    { view: 'manage' },
+    { view: 'settings' }
+  ];
+  function currentSeqIndex() {
+    for (let i = 0; i < SWIPE_SEQ.length; i++) {
+      const s = SWIPE_SEQ[i];
+      if (s.view !== state.view) continue;
+      if (s.docTab && s.docTab !== state.docTab) continue;
+      return i;
+    }
+    return -1;
+  }
+  function swipeTo(index) {
+    if (index < 0 || index >= SWIPE_SEQ.length) return;
+    const target = SWIPE_SEQ[index];
+    if (target.docTab && target.docTab !== state.docTab) switchDocTab(target.docTab);
+    setView(target.view);
+    haptic();
+  }
+  function navigateSwipe(dir) {
+    // dir = +1 (swipe left / next) or -1 (swipe right / prev)
+    const i = currentSeqIndex();
+    if (i < 0) return;
+    swipeTo(i + dir);
+  }
+  function installSwipeNavigation() {
+    const views = $('#views');
+    if (!views) return;
+    let sx = 0, sy = 0, st = 0, tracking = false;
+    views.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) { tracking = false; return; }
+      // Ignore gestures that start on an interactive control or inside a
+      // reader overlay (overlays live outside #views, so no extra check needed).
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); tracking = true;
+    }, { passive: true });
+    views.addEventListener('touchend', e => {
+      if (!tracking || !e.changedTouches || !e.changedTouches.length) return;
+      tracking = false;
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = e.changedTouches[0].clientY - sy;
+      const dt = Date.now() - st;
+      if (dt > 800) return;                       // too slow: not a flick
+      if (Math.abs(dx) < 64) return;              // too short
+      if (Math.abs(dx) < Math.abs(dy) * 1.4) return; // mostly vertical: let it scroll
+      // Overlay open? don't navigate behind a modal.
+      if (document.querySelector('#overlayRoot .overlay')) return;
+      navigateSwipe(dx < 0 ? 1 : -1);             // swipe left = next, right = prev
+    }, { passive: true });
   }
 
   /* ---------------------------------------------------------
@@ -1908,7 +1983,7 @@
     if (NV && typeof NV.listNovels === 'function') {
       try { novels = await NV.listNovels(); } catch (e) { novels = []; }
     }
-    // v1.0.9: the "导入 TXT 小说" button was removed from the novel shelf —
+    // v1.1.0: the "导入 TXT 小说" button was removed from the novel shelf —
     // importing TXT is now done from the bottom "+" button (导入 TXT 小说).
     if (!novels.length) {
       host.innerHTML = '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
@@ -1945,7 +2020,7 @@
     // pages are hash-routed SPA apps: on load they show #/home (nothing to
     // scroll) and the actual reading content only appears after navigating to
     // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.0.9: save/restore BOTH the location.hash and the scroll
+    // restored 0. v1.1.0: save/restore BOTH the location.hash and the scroll
     // percentage — restore the hash first (which triggers the SPA to build the
     // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
@@ -1986,7 +2061,7 @@
 
     // Restore: wait for the document to have scrollable height, jump to the
     // saved hash chapter first (hash-routed SPA handbooks), then scroll to the
-    // saved percentage. v1.0.9 fix: a restore is needed whenever there IS a
+    // saved percentage. v1.1.0 fix: a restore is needed whenever there IS a
     // saved position — either a hash OR a non-trivial scroll percentage. The
     // old `restoreDone = !savedHash` skipped ALL plain long documents (no hash
     // routes), which is why a swapped-in normal HTML never remembered its spot.
@@ -2158,7 +2233,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.0.9): prefer saved page, else ratio.
+    // Restore last reading position (v1.1.0): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2264,15 +2339,31 @@
       (sub ? '<div class="grow-sub">' + esc(sub) + '</div>' : '') + '</div>' + (right || '') + '</div>';
     const arrow = '<span class="icon chev">' + icon('chev-right').replace('class="icon "', 'class="icon"') + '</span>';
 
+    // v1.1.0: preset liquid-glass colorway swatches. Each swatch previews its
+    // own background/accent colors inline so the choice is visible at a glance.
+    const swatchDefs = [
+      { key: 'dark',        label: '深空紫', bg: '#0b1020', ac: '#8d7dff', blob: '#5b4bff' },
+      { key: 'light',       label: '云海蓝', bg: '#e8edfb', ac: '#6a5af0', blob: '#8f7bff' },
+      { key: 'mint',        label: '薄荷绿', bg: '#061410', ac: '#5fe0a8', blob: '#2fbf88' },
+      { key: 'mint-light',  label: '淡绿',   bg: '#e6f4ea', ac: '#17996b', blob: '#5fd0a0' },
+      { key: 'rose',        label: '玫红',   bg: '#130a17', ac: '#ff8fc4', blob: '#e0459a' },
+      { key: 'rose-light',  label: '浅樱粉', bg: '#fbeaf3', ac: '#c02f83', blob: '#f08fc0' },
+      { key: 'amber',       label: '琥珀橙', bg: '#170e08', ac: '#ffb25e', blob: '#e08228' },
+      { key: 'amber-light', label: '浅暖橘', bg: '#fdf2e5', ac: '#c4630f', blob: '#f0b060' },
+      { key: 'ocean',       label: '深海蓝', bg: '#06131d', ac: '#5fd0f5', blob: '#1f9fd8' },
+      { key: 'ocean-light', label: '浅海蓝', bg: '#e6f4fa', ac: '#1178ab', blob: '#68c6e8' }
+    ];
+    const themeGrid = '<div class="theme-grid">' + swatchDefs.map(s =>
+      '<div class="theme-swatch ' + (cfg.theme === s.key ? 'on' : '') + '" data-act="set-theme" data-v="' + s.key + '" role="button">' +
+      '<span class="sw" style="background:' + s.bg + '"><i style="background:' + s.blob + '"></i></span>' +
+      '<span class="lbl">' + esc(s.label) + '</span><span class="chk">✓</span></div>'
+    ).join('') + '</div>';
+
     $('#settingsBody').innerHTML =
       '<div class="group"><div class="group-head">' + icon('sun') + '<h3>外观</h3></div>' +
       '<div class="glist">' +
-      '<div class="grow"><div class="grow-ic">' + icon('moon') + '</div><div class="grow-main"><div class="grow-title">深色 / 浅色模式</div>' +
-      '<div class="grow-sub">液态玻璃会随主题改变折射与高光</div></div>' +
-      '<div class="segmented" style="width:150px;flex:none">' +
-      '<button data-act="set-theme" data-v="dark" class="' + (cfg.theme === 'dark' ? 'on' : '') + '">深色</button>' +
-      '<button data-act="set-theme" data-v="light" class="' + (cfg.theme === 'light' ? 'on' : '') + '">浅色</button>' +
-      '</div></div>' +
+      '<div class="grow" style="flex-direction:column;align-items:stretch"><div class="grow-main"><div class="grow-title">主题配色</div>' +
+      '<div class="grow-sub">10 套液态玻璃配色，点选即时切换（含淡绿）</div></div>' + themeGrid + '</div>' +
       row('eye', '默认隐藏已掌握', '让已掌握的题目不再出现在列表', '<div class="switch ' + (cfg.hideMastered ? 'on' : '') + '" data-act="toggle-hide"><i></i></div>') +
       '</div></div>' +
 
@@ -2290,7 +2381,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.0.9 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.1.0 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2833,7 +2924,10 @@
       else if (choice === 'txt') doPromptTxtImport();
       else if (choice === 'single') openEditor(null);
     };
-    $('#btnTheme').onclick = () => setTheme(state.config.theme === 'dark' ? 'light' : 'dark');
+    $('#btnTheme').onclick = () => {
+      const cur = THEMES[state.config.theme] || THEMES.dark;
+      setTheme(cur.light ? 'dark' : 'light');
+    };
     $('#btnStats').onclick = () => { haptic(); setView('stats'); };
 
     // "导入资料" from the FAB opens a chooser so it actually triggers a file picker.
@@ -2972,7 +3066,7 @@
         case 'toggle-collapse': {
           const ck = el.dataset.k;
           state.manageCollapsed[ck] = !state.manageCollapsed[ck];
-          // Persist so the expand/collapse state survives app restarts (v1.0.9).
+          // Persist so the expand/collapse state survives app restarts (v1.1.0).
           if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
           state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
           DB.putConfig(state.config);

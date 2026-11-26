@@ -43,8 +43,10 @@ EXTRA_JDK_DIRS = [
 ]
 EXTRA_TOOLCHAIN_DIRS = [WORKSPACE / ".toolchain", LEGACY_WORKSPACE / ".toolchain"]
 
-APP_NAME = "Noteee-v1.0.9.apk"
-CN_NAME = "Noteee-v1.0.9-签名版.apk"
+VERSION_CODE = "11"
+VERSION_NAME = "1.1.0"
+APP_NAME = "Noteee-v1.1.0.apk"
+CN_NAME = "Noteee-v1.1.0-签名版.apk"
 STOREPASS = "cuotiben123"
 ALIAS = "cuotiben"
 # 放在 android/ 而非 android/build/：build/ 每次构建会清空，密钥必须持久保留，
@@ -68,6 +70,23 @@ def run_bat(bat, args, env=None):
     cmdline = 'cmd /c "' + inner + '"'
     log("> " + cmdline)
     subprocess.run(cmdline, check=True, env=env)
+
+
+def sync_android_manifest_version():
+    """Write VERSION_CODE / VERSION_NAME into AndroidManifest.xml before aapt2
+    link. aapt2's --version-code/--version-name flags are ignored when the
+    manifest already declares these attributes, so OEM installers (Xiaomi etc.)
+    would otherwise keep showing a stale version. Idempotent."""
+    import re
+    mf = ANDROID / "AndroidManifest.xml"
+    text = mf.read_text(encoding="utf-8")
+    new = re.sub(r'android:versionCode="[^"]*"',
+                 'android:versionCode="%s"' % VERSION_CODE, text, count=1)
+    new = re.sub(r'android:versionName="[^"]*"',
+                 'android:versionName="%s"' % VERSION_NAME, new, count=1)
+    if new != text:
+        mf.write_text(new, encoding="utf-8")
+        log("synced AndroidManifest.xml version -> %s (%s)" % (VERSION_NAME, VERSION_CODE))
 
 
 def pick_dir(base, pattern):
@@ -183,6 +202,12 @@ def main():
 
     copy_web_assets()
 
+    # Keep AndroidManifest.xml in sync with the version constants. aapt2 link's
+    # --version-code/--version-name flags do NOT override values already present
+    # in the manifest, so the manifest must carry the real version or Xiaomi /
+    # other OEM installers keep showing the stale version (e.g. 1.0.0).
+    sync_android_manifest_version()
+
     # ---------- 1. resources ----------
     res_zip = OUT / "res.zip"
     base_apk = OUT / "base.apk"
@@ -196,8 +221,8 @@ def main():
          "--auto-add-overlay",
          "--min-sdk-version", "26",
          "--target-sdk-version", "34",
-         "--version-code", "10",
-         "--version-name", "1.0.9",
+         "--version-code", VERSION_CODE,
+         "--version-name", VERSION_NAME,
          # OCR wasm / traineddata assets are >1 MB. AssetManager.open() can only
          # uncompress up to UNCOMPRESS_DATA_MAX (~1 MB), so store them uncompressed.
          "-0", "wasm", "-0", "gz", "-0", "js", "-0", "txt", "-0", "woff2"])
