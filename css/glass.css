@@ -438,6 +438,28 @@ body.theme-amber-light .glass::after, body.theme-ocean-light .glass::after{ back
 }
 @media (prefers-reduced-motion: reduce){ .view.active{ animation: none; } }
 
+/* v1.1.2 — directional, buffered swipe transitions. On a horizontal flick the
+   outgoing screen eases toward the opposite edge while the incoming screen
+   follows the finger in from the swipe direction; both fade so the two screens
+   stay visually connected instead of a hard cut. Only transform/opacity run on
+   the compositor (blur is suppressed via .entering), so it stays smooth. */
+.view.swipe-out-next, .view.swipe-out-prev{ display: flex; z-index: 5; pointer-events: none; }
+.view.swipe-out-next{ animation: viewSwipeOutNext .32s cubic-bezier(.4, 0, .6, 1) both; }
+.view.swipe-out-prev{ animation: viewSwipeOutPrev .32s cubic-bezier(.4, 0, .6, 1) both; }
+.view.active.swipe-in-next{ animation: viewSwipeInNext .36s cubic-bezier(.22, 1, .36, 1) both; }
+.view.active.swipe-in-prev{ animation: viewSwipeInPrev .36s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes viewSwipeOutNext{ from{ transform: translate3d(0, 0, 0); opacity: 1; } to{ transform: translate3d(-30%, 0, 0); opacity: .25; } }
+@keyframes viewSwipeOutPrev{ from{ transform: translate3d(0, 0, 0); opacity: 1; } to{ transform: translate3d(30%, 0, 0); opacity: .25; } }
+@keyframes viewSwipeInNext{ from{ transform: translate3d(32%, 0, 0); opacity: .3; } to{ transform: translate3d(0, 0, 0); opacity: 1; } }
+@keyframes viewSwipeInPrev{ from{ transform: translate3d(-32%, 0, 0); opacity: .3; } to{ transform: translate3d(0, 0, 0); opacity: 1; } }
+/* same-view 资料/小说 tab switch: slide the incoming body in from the swipe side */
+.doc-swipe-in-next{ animation: viewSwipeInNext .34s cubic-bezier(.22, 1, .36, 1) both; }
+.doc-swipe-in-prev{ animation: viewSwipeInPrev .34s cubic-bezier(.22, 1, .36, 1) both; }
+@media (prefers-reduced-motion: reduce){
+  .view.swipe-out-next, .view.swipe-out-prev, .view.active.swipe-in-next,
+  .view.active.swipe-in-prev, .doc-swipe-in-next, .doc-swipe-in-prev{ animation: none !important; }
+}
+
 .topbar{ display: flex; align-items: center; gap: 12px; padding: 20px 22px 10px; flex: none; }
 .topbar-txt{ flex: 1; min-width: 0; }
 .eyebrow{ display: block; font-size: 10.5px; letter-spacing: .19em; text-transform: uppercase; color: var(--text-3); font-weight: 600; margin-bottom: 3px; }
@@ -777,8 +799,10 @@ body.theme-amber-light .overlay-mask, body.theme-ocean-light .overlay-mask{ back
 .theme-swatch .sw i{ position: absolute; left: 6px; top: 6px; width: 15px; height: 15px; border-radius: 50%; filter: blur(5px); opacity: .7; }
 .theme-swatch .lbl{ font-size: 10.5px; font-weight: 620; color: var(--text-2); line-height: 1.2; text-align: center; }
 .theme-swatch.on .lbl{ color: var(--accent); }
-.theme-swatch .chk{ position: absolute; top: 4px; right: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); color: #fff; display: none; place-items: center; font-size: 9px; font-weight: 800; }
-.theme-swatch.on .chk{ display: grid; }
+/* v1.1.2: the check lives INSIDE .sw (which is position:relative), so it sits
+   on the selected swatch's corner instead of stacking at the card's top-right. */
+.theme-swatch .sw .chk{ position: absolute; top: 3px; right: 3px; width: 15px; height: 15px; border-radius: 50%; background: var(--accent); color: #fff; display: none; place-items: center; font-size: 10px; font-weight: 800; box-shadow: 0 1px 4px rgba(0,0,0,.3); z-index: 2; }
+.theme-swatch.on .sw .chk{ display: grid; }
 
 /* star input */
 .star-input{ display: flex; gap: 8px; align-items: center; }
