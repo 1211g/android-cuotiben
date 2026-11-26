@@ -438,27 +438,18 @@ body.theme-amber-light .glass::after, body.theme-ocean-light .glass::after{ back
 }
 @media (prefers-reduced-motion: reduce){ .view.active{ animation: none; } }
 
-/* v1.1.2 — directional, buffered swipe transitions. On a horizontal flick the
-   outgoing screen eases toward the opposite edge while the incoming screen
-   follows the finger in from the swipe direction; both fade so the two screens
-   stay visually connected instead of a hard cut. Only transform/opacity run on
-   the compositor (blur is suppressed via .entering), so it stays smooth. */
-.view.swipe-out-next, .view.swipe-out-prev{ display: flex; z-index: 5; pointer-events: none; }
-.view.swipe-out-next{ animation: viewSwipeOutNext .32s cubic-bezier(.4, 0, .6, 1) both; }
-.view.swipe-out-prev{ animation: viewSwipeOutPrev .32s cubic-bezier(.4, 0, .6, 1) both; }
-.view.active.swipe-in-next{ animation: viewSwipeInNext .36s cubic-bezier(.22, 1, .36, 1) both; }
-.view.active.swipe-in-prev{ animation: viewSwipeInPrev .36s cubic-bezier(.22, 1, .36, 1) both; }
-@keyframes viewSwipeOutNext{ from{ transform: translate3d(0, 0, 0); opacity: 1; } to{ transform: translate3d(-30%, 0, 0); opacity: .25; } }
-@keyframes viewSwipeOutPrev{ from{ transform: translate3d(0, 0, 0); opacity: 1; } to{ transform: translate3d(30%, 0, 0); opacity: .25; } }
-@keyframes viewSwipeInNext{ from{ transform: translate3d(32%, 0, 0); opacity: .3; } to{ transform: translate3d(0, 0, 0); opacity: 1; } }
-@keyframes viewSwipeInPrev{ from{ transform: translate3d(-32%, 0, 0); opacity: .3; } to{ transform: translate3d(0, 0, 0); opacity: 1; } }
-/* same-view 资料/小说 tab switch: slide the incoming body in from the swipe side */
-.doc-swipe-in-next{ animation: viewSwipeInNext .34s cubic-bezier(.22, 1, .36, 1) both; }
-.doc-swipe-in-prev{ animation: viewSwipeInPrev .34s cubic-bezier(.22, 1, .36, 1) both; }
-@media (prefers-reduced-motion: reduce){
-  .view.swipe-out-next, .view.swipe-out-prev, .view.active.swipe-in-next,
-  .view.active.swipe-in-prev, .doc-swipe-in-next, .doc-swipe-in-prev{ animation: none !important; }
-}
+/* v1.1.3 — WeChat-style follow-the-finger swipe. During a horizontal drag
+   #views gets .swiping; the outgoing layer follows the finger via inline
+   transform and the incoming layer is revealed at the adjacent edge, so the
+   two screens move as one continuous strip. On release a .22s ease either
+   completes the page turn or snaps back. Only transform is animated. */
+#views.swiping{ overflow: hidden; }
+.view.swipe-peek{ display: flex !important; z-index: 1; pointer-events: none; }
+.view.swipe-peek, .view.active{ will-change: transform; }
+/* same-view 资料/小说 sub-tab: the two bodies are temporarily absolutely
+   positioned side by side inside the scroll host and slide together. */
+#docsScroll{ position: relative; }
+.swipe-page{ position: absolute !important; top: 0; left: 18px; right: 18px; will-change: transform; }
 
 .topbar{ display: flex; align-items: center; gap: 12px; padding: 20px 22px 10px; flex: none; }
 .topbar-txt{ flex: 1; min-width: 0; }

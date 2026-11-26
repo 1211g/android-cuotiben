@@ -62,7 +62,7 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
-    // Restore persisted manage-group collapse state (v1.1.2).
+    // Restore persisted manage-group collapse state (v1.1.3).
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
@@ -94,7 +94,7 @@
     state.imageCount = (imgs || []).length;
   }
 
-  // v1.1.2: preset liquid-glass colorways. Each has a dark and a light variant;
+  // v1.1.3: preset liquid-glass colorways. Each has a dark and a light variant;
   // `base` is the classic purple/blue theme, `light: true` marks light variants
   // (for status-bar icon color + theme-color meta).
   const THEMES = {
@@ -240,7 +240,7 @@
     const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    // v1.1.2: drop descendant blur only for the duration of the enter
+    // v1.1.3: drop descendant blur only for the duration of the enter
     // animation so the GPU composites a pure transform+opacity layer.
     if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
@@ -250,9 +250,9 @@
     else if (v === 'settings') renderSettings();
   }
 
-  // v1.1.2: horizontal swipe navigation across the main screens. The 资料
-  // view has two sub-tabs (资料 / 小说) that count as separate stops, so the
-  // sequence is home -> pdf/docs -> pdf/novels -> manage -> settings.
+  // v1.1.3 — WeChat-style follow-the-finger horizontal navigation.
+  // The 资料 view hosts two sub-tabs (资料 / 小说) that count as separate stops:
+  // home -> pdf/docs -> pdf/novels -> manage -> settings.
   const SWIPE_SEQ = [
     { view: 'home' },
     { view: 'pdf', docTab: 'docs' },
@@ -269,72 +269,160 @@
     }
     return -1;
   }
-  function swipeTo(index, dir) {
-    if (index < 0 || index >= SWIPE_SEQ.length) return;
-    const target = SWIPE_SEQ[index];
-    const prevEl = document.getElementById('view-' + state.view);
-    const sameViewTargetDoc = (target.view === state.view && target.docTab && target.docTab !== state.docTab);
-    if (target.docTab && target.docTab !== state.docTab) switchDocTab(target.docTab);
-    setView(target.view);
-    const nextEl = document.getElementById('view-' + target.view);
-    // v1.1.2: buffered directional transition. When crossing to a different
-    // view, keep the outgoing screen visible and slide the two apart in the
-    // swipe direction (next = incoming from right, prev = incoming from left).
-    if (dir && prevEl && nextEl && prevEl !== nextEl) {
-      const outC = dir > 0 ? 'swipe-out-next' : 'swipe-out-prev';
-      const inC = dir > 0 ? 'swipe-in-next' : 'swipe-in-prev';
-      const cleanup = () => {
-        prevEl.classList.remove(outC); nextEl.classList.remove(inC);
-      };
-      prevEl.classList.remove('swipe-out-next', 'swipe-out-prev');
-      nextEl.classList.remove('swipe-in-next', 'swipe-in-prev');
-      // force a reflow so the animation restarts even on rapid repeated swipes
-      void nextEl.offsetWidth;
-      prevEl.classList.add(outC); nextEl.classList.add(inC);
-      nextEl.addEventListener('animationend', cleanup, { once: true });
-      setTimeout(cleanup, 520); // fallback if animationend is suppressed
-    } else if (dir && sameViewTargetDoc) {
-      // 资料/小说 live in the same view: slide the newly shown body in.
-      const body = target.docTab === 'novels' ? document.getElementById('novelViewBody') : document.getElementById('pdfViewBody');
-      if (body) {
-        const c = dir > 0 ? 'doc-swipe-in-next' : 'doc-swipe-in-prev';
-        body.classList.remove('doc-swipe-in-next', 'doc-swipe-in-prev');
-        void body.offsetWidth;
-        body.classList.add(c);
-        setTimeout(() => body.classList.remove(c), 460);
+
+  // Render a stop's content while it is still offscreen. For the pdf view we
+  // align state.docTab with the target stop so setView() later renders the
+  // right body; the previous value is restored when the gesture is cancelled.
+  function prerenderStop(stop, drag) {
+    if (stop.view === 'pdf') {
+      const prev = state.docTab;
+      if (stop.docTab && stop.docTab !== state.docTab) {
+        state.docTab = stop.docTab;
+        $$('.doc-tabs button').forEach(b => b.classList.toggle('on', b.dataset.doctab === state.docTab));
       }
-    }
-    haptic();
+      drag.prevDocTab = prev;
+      renderPdfView();
+    } else if (stop.view === 'home') renderHome();
+    else if (stop.view === 'stats') renderStats();
+    else if (stop.view === 'manage') renderManage();
+    else if (stop.view === 'settings') renderSettings();
   }
+
+  // Prepare the two stacked layers that slide together like one strip.
+  function prepareDrag(idx, dir) {
+    const cur = SWIPE_SEQ[idx], target = SWIPE_SEQ[idx + dir];
+    if (!target) return null;
+    const viewsEl = $('#views');
+    if (!viewsEl) return null;
+    const W = viewsEl.clientWidth || window.innerWidth;
+    const curEl = document.getElementById('view-' + cur.view);
+    if (!curEl) return null;
+    const d = { idx, dir, cur, target, W, viewsEl, curEl, crossView: target.view !== cur.view };
+    if (d.crossView) {
+      const peerEl = document.getElementById('view-' + target.view);
+      if (!peerEl) return null;
+      prerenderStop(target, d);
+      peerEl.classList.add('swipe-peek');
+      peerEl.style.transform = 'translate3d(' + (dir > 0 ? W : -W) + 'px,0,0)';
+      d.peerEl = peerEl;
+    } else {
+      // Same view, different 资料/小说 sub-tab: slide the two bodies.
+      const docsBody = $('#pdfViewBody'), novelBody = $('#novelViewBody');
+      if (!docsBody || !novelBody) return null;
+      renderPdfView(); renderNovelView();
+      docsBody.hidden = false; novelBody.hidden = false;
+      docsBody.classList.add('swipe-page'); novelBody.classList.add('swipe-page');
+      const from = cur.docTab === 'novels' ? novelBody : docsBody;
+      const to = target.docTab === 'novels' ? novelBody : docsBody;
+      d.fromBody = from; d.toBody = to;
+      to.style.transform = 'translate3d(' + (dir > 0 ? W : -W) + 'px,0,0)';
+    }
+    viewsEl.classList.add('swiping');
+    return d;
+  }
+
+  // Move both layers with the finger. Beyond the destination apply a 0.3x
+  // rubber-band so the end of the sequence resists like a native scroll view.
+  function moveDrag(d, dx) {
+    let x = dx;
+    if (d.dir > 0 && x > 0) x *= 0.3;
+    if (d.dir < 0 && x < 0) x *= 0.3;
+    if (d.crossView) {
+      d.curEl.style.transform = 'translate3d(' + x + 'px,0,0)';
+      d.peerEl.style.transform = 'translate3d(' + ((d.dir > 0 ? d.W : -d.W) + x) + 'px,0,0)';
+    } else {
+      d.fromBody.style.transform = 'translate3d(' + x + 'px,0,0)';
+      d.toBody.style.transform = 'translate3d(' + ((d.dir > 0 ? d.W : -d.W) + x) + 'px,0,0)';
+    }
+  }
+
+  function clearDragStyles(d) {
+    const clear = el => { if (el) { el.style.transition = ''; el.style.transform = ''; } };
+    clear(d.curEl); clear(d.peerEl); clear(d.fromBody); clear(d.toBody);
+  }
+
+  function finishDrag(d, commit) {
+    const W = d.W;
+    const ease = 'transform .22s cubic-bezier(.22, 1, .36, 1)';
+    const animate = (el, toX) => { el.style.transition = ease; el.style.transform = 'translate3d(' + toX + 'px,0,0)'; };
+    const endX = commit ? (d.dir > 0 ? -W : W) : 0;
+    const peerEnd = commit ? 0 : (d.dir > 0 ? W : -W);
+    if (d.crossView) { animate(d.curEl, endX); animate(d.peerEl, peerEnd); }
+    else { animate(d.fromBody, endX); animate(d.toBody, peerEnd); }
+
+    setTimeout(() => {
+      if (commit) {
+        if (d.crossView) setView(d.target.view);
+        else switchDocTab(d.target.docTab);
+      } else if (d.prevDocTab !== undefined && d.prevDocTab !== state.docTab) {
+        // cancelled a cross-view drag into 资料: restore the previous sub-tab
+        state.docTab = d.prevDocTab;
+        $$('.doc-tabs button').forEach(b => b.classList.toggle('on', b.dataset.doctab === state.docTab));
+        renderPdfView();
+      }
+      d.viewsEl.classList.remove('swiping');
+      if (d.peerEl) d.peerEl.classList.remove('swipe-peek');
+      if (d.fromBody) {
+        d.fromBody.classList.remove('swipe-page'); d.toBody.classList.remove('swipe-page');
+        // restore hidden flags to match the (now committed) state
+        $('#pdfViewBody').hidden = state.docTab !== 'docs';
+        $('#novelViewBody').hidden = state.docTab !== 'novels';
+      }
+      clearDragStyles(d);
+      if (commit) haptic();
+    }, 240);
+  }
+
   function navigateSwipe(dir) {
-    // dir = +1 (swipe left / next) or -1 (swipe right / prev)
     const i = currentSeqIndex();
     if (i < 0) return;
-    swipeTo(i + dir, dir);
+    const target = SWIPE_SEQ[i + dir];
+    if (!target) return;
+    if (target.view !== state.view) setView(target.view);
+    if (target.docTab && target.docTab !== state.docTab) switchDocTab(target.docTab);
+    haptic();
   }
+
   function installSwipeNavigation() {
     const views = $('#views');
     if (!views) return;
-    let sx = 0, sy = 0, st = 0, tracking = false;
+    let sx = 0, sy = 0, st = 0, decided = false, drag = null;
     views.addEventListener('touchstart', e => {
-      if (e.touches.length !== 1) { tracking = false; return; }
-      // Ignore gestures that start on an interactive control or inside a
-      // reader overlay (overlays live outside #views, so no extra check needed).
-      sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); tracking = true;
-    }, { passive: true });
-    views.addEventListener('touchend', e => {
-      if (!tracking || !e.changedTouches || !e.changedTouches.length) return;
-      tracking = false;
-      const dx = e.changedTouches[0].clientX - sx;
-      const dy = e.changedTouches[0].clientY - sy;
-      const dt = Date.now() - st;
-      if (dt > 800) return;                       // too slow: not a flick
-      if (Math.abs(dx) < 64) return;              // too short
-      if (Math.abs(dx) < Math.abs(dy) * 1.4) return; // mostly vertical: let it scroll
-      // Overlay open? don't navigate behind a modal.
+      if (e.touches.length !== 1) return;
       if (document.querySelector('#overlayRoot .overlay')) return;
-      navigateSwipe(dx < 0 ? 1 : -1);             // swipe left = next, right = prev
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
+      decided = false; drag = null;
     }, { passive: true });
+    views.addEventListener('touchmove', e => {
+      if (e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - sx;
+      const dy = e.touches[0].clientY - sy;
+      if (!drag) {
+        if (decided) return;
+        if (Math.abs(dx) < 12) return;
+        if (Math.abs(dx) < Math.abs(dy) * 1.3) { decided = true; return; } // vertical scroll
+        decided = true;
+        const idx = currentSeqIndex();
+        if (idx < 0) return;
+        const dir = dx < 0 ? 1 : -1;
+        if ((dir > 0 && idx >= SWIPE_SEQ.length - 1) || (dir < 0 && idx <= 0)) return;
+        drag = prepareDrag(idx, dir);
+        if (!drag) return;
+      }
+      moveDrag(drag, dx);
+      e.preventDefault();
+    }, { passive: false });
+    const onEnd = e => {
+      if (!drag) { decided = false; return; }
+      const d = drag; drag = null; decided = false;
+      const dx = (e.changedTouches && e.changedTouches.length) ? e.changedTouches[0].clientX - sx : 0;
+      const dt = Math.max(Date.now() - st, 1);
+      const fast = Math.abs(dx) / dt > 0.45;
+      const commit = (d.dir > 0 ? dx < -d.W * 0.32 : dx > d.W * 0.32) || (fast && Math.abs(dx) > 36);
+      finishDrag(d, commit);
+    };
+    views.addEventListener('touchend', onEnd, { passive: true });
+    views.addEventListener('touchcancel', onEnd, { passive: true });
   }
 
   /* ---------------------------------------------------------
@@ -2013,7 +2101,7 @@
     if (NV && typeof NV.listNovels === 'function') {
       try { novels = await NV.listNovels(); } catch (e) { novels = []; }
     }
-    // v1.1.2: the "导入 TXT 小说" button was removed from the novel shelf —
+    // v1.1.3: the "导入 TXT 小说" button was removed from the novel shelf —
     // importing TXT is now done from the bottom "+" button (导入 TXT 小说).
     if (!novels.length) {
       host.innerHTML = '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
@@ -2050,7 +2138,7 @@
     // pages are hash-routed SPA apps: on load they show #/home (nothing to
     // scroll) and the actual reading content only appears after navigating to
     // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.1.2: save/restore BOTH the location.hash and the scroll
+    // restored 0. v1.1.3: save/restore BOTH the location.hash and the scroll
     // percentage — restore the hash first (which triggers the SPA to build the
     // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
@@ -2091,7 +2179,7 @@
 
     // Restore: wait for the document to have scrollable height, jump to the
     // saved hash chapter first (hash-routed SPA handbooks), then scroll to the
-    // saved percentage. v1.1.2 fix: a restore is needed whenever there IS a
+    // saved percentage. v1.1.3 fix: a restore is needed whenever there IS a
     // saved position — either a hash OR a non-trivial scroll percentage. The
     // old `restoreDone = !savedHash` skipped ALL plain long documents (no hash
     // routes), which is why a swapped-in normal HTML never remembered its spot.
@@ -2263,7 +2351,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.1.2): prefer saved page, else ratio.
+    // Restore last reading position (v1.1.3): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2369,7 +2457,7 @@
       (sub ? '<div class="grow-sub">' + esc(sub) + '</div>' : '') + '</div>' + (right || '') + '</div>';
     const arrow = '<span class="icon chev">' + icon('chev-right').replace('class="icon "', 'class="icon"') + '</span>';
 
-    // v1.1.2: preset liquid-glass colorway swatches. Each swatch previews its
+    // v1.1.3: preset liquid-glass colorway swatches. Each swatch previews its
     // own background/accent colors inline so the choice is visible at a glance.
     const swatchDefs = [
       { key: 'dark',        label: '深空紫', bg: '#0b1020', ac: '#8d7dff', blob: '#5b4bff' },
@@ -2411,7 +2499,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.1.2 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.1.3 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2731,7 +2819,7 @@
       rows.slice(0, 6).forEach(r => {
         const it = r.item;
         const label = r.action === 'create' ? '新增' : (r.action === 'update' ? '更新' : '跳过');
-        // v1.1.2: 预览里的题干/解析也要能渲染数学公式（$…$ / $$…$$），挂 data-math-text 后统一走 KaTeX。
+        // v1.1.3: 预览里的题干/解析也要能渲染数学公式（$…$ / $$…$$），挂 data-math-text 后统一走 KaTeX。
         const stemTxt = it.stem ? it.stem.replace(/\s+/g, ' ') : '（纯图片题）';
         html += '<div class="batch-item"><div class="bi-main">' +
           '<div class="bi-title" data-math-text="' + esc(stemTxt) + '">' + esc(stemTxt) + '</div>' +
@@ -2758,7 +2846,7 @@
       if (news.tags.length) parts.push('标签 ' + news.tags.join('、'));
       if (parts.length) html += '<div class="batch-newcfg">将自动新增：' + esc(parts.join('；')) + '</div>';
       box.innerHTML = html;
-      // v1.1.2: 预览里的 $…$ / $$…$$ 用 KaTeX 渲染，与题干/详情一致。
+      // v1.1.3: 预览里的 $…$ / $$…$$ 用 KaTeX 渲染，与题干/详情一致。
       renderDetailMath(box);
       updateFoot();
     }
@@ -3101,7 +3189,7 @@
         case 'toggle-collapse': {
           const ck = el.dataset.k;
           state.manageCollapsed[ck] = !state.manageCollapsed[ck];
-          // Persist so the expand/collapse state survives app restarts (v1.1.2).
+          // Persist so the expand/collapse state survives app restarts (v1.1.3).
           if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
           state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
           DB.putConfig(state.config);
