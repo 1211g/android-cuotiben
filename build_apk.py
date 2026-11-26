@@ -43,10 +43,10 @@ EXTRA_JDK_DIRS = [
 ]
 EXTRA_TOOLCHAIN_DIRS = [WORKSPACE / ".toolchain", LEGACY_WORKSPACE / ".toolchain"]
 
-VERSION_CODE = "11"
-VERSION_NAME = "1.1.0"
-APP_NAME = "Noteee-v1.1.0.apk"
-CN_NAME = "Noteee-v1.1.0-签名版.apk"
+VERSION_CODE = "12"
+VERSION_NAME = "1.1.1"
+APP_NAME = "Noteee-v1.1.1.apk"
+CN_NAME = "Noteee-v1.1.1-签名版.apk"
 STOREPASS = "cuotiben123"
 ALIAS = "cuotiben"
 # 放在 android/ 而非 android/build/：build/ 每次构建会清空，密钥必须持久保留，

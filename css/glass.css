@@ -1180,6 +1180,8 @@ textarea.mono{ font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation 
 .batch-item{ display: flex; gap: 9px; align-items: flex-start; padding: 9px 10px; border-radius: 12px; background: var(--glass); border: 1px solid var(--stroke); margin-top: 7px; }
 .batch-item .bi-main{ flex: 1; min-width: 0; }
 .batch-item .bi-title{ font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-item .bi-analysis{ font-size: 11.5px; color: var(--text-2); line-height: 1.5; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-item .bi-analysis .katex{ font-size: 1em; }
 .batch-item .bi-sub{ font-size: 11px; color: var(--text-3); margin-top: 3px; }
 .batch-tag{ flex: none; align-self: center; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
 .batch-tag.create{ color: var(--good); background: rgba(79,223,166,.14); }
