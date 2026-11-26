@@ -62,7 +62,7 @@
   async function boot() {
     await DB.init();
     state.config = await DB.getConfig();
-    // Restore persisted manage-group collapse state (v1.1.4).
+    // Restore persisted manage-group collapse state (v1.1.5).
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
@@ -94,7 +94,7 @@
     state.imageCount = (imgs || []).length;
   }
 
-  // v1.1.4: preset liquid-glass colorways. Each has a dark and a light variant;
+  // v1.1.5: preset liquid-glass colorways. Each has a dark and a light variant;
   // `base` is the classic purple/blue theme, `light: true` marks light variants
   // (for status-bar icon color + theme-color meta).
   const THEMES = {
@@ -235,14 +235,21 @@
   /* ---------------------------------------------------------
      NAVIGATION
      --------------------------------------------------------- */
-  function setView(v) {
+  function setView(v, skipAnim) {
+    // v1.1.5: a page that just landed from a swipe keeps its `swipe-landed`
+    // suppression while it stays active. Clear it only on a genuine view
+    // change so the next (non-swipe) navigation still animates. Removing it on
+    // a timer re-triggered viewIn (animation-name none->viewIn) mid-idle = jitter.
+    if (v !== state.view) $$('.view').forEach(el => el.classList.remove('swipe-landed'));
     state.view = v;
     const activeView = document.getElementById('view-' + v);
     $$('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
     $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
-    // v1.1.4: drop descendant blur only for the duration of the enter
+    // v1.1.5: drop descendant blur only for the duration of the enter
     // animation so the GPU composites a pure transform+opacity layer.
-    if (activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
+    // v1.1.5: on swipe landing there is no enter animation — skip it, otherwise
+    // the 700ms fallback restores backdrop-filter in a visible snap.
+    if (!skipAnim && activeView && typeof U.enterSheet === 'function') U.enterSheet(activeView);
     if (v === 'home') renderHome();
     else if (v === 'stats') renderStats();
     else if (v === 'pdf') renderPdfView();
@@ -250,7 +257,7 @@
     else if (v === 'settings') renderSettings();
   }
 
-  // v1.1.4 — WeChat-style follow-the-finger horizontal navigation.
+  // v1.1.5 — WeChat-style follow-the-finger horizontal navigation.
   // The 资料 view hosts two sub-tabs (资料 / 小说) that count as separate stops:
   // home -> pdf/docs -> pdf/novels -> manage -> settings.
   const SWIPE_SEQ = [
@@ -352,15 +359,16 @@
 
     setTimeout(() => {
       if (commit) {
-        // Mark the incoming page as "landed" BEFORE setView makes it active,
-        // so its generic viewIn fade is suppressed (it already slid in fully).
-        const landed = d.crossView ? d.peerEl : document.getElementById('view-' + state.view);
-        if (landed) {
-          landed.classList.add('swipe-landed');
-          setTimeout(() => landed.classList.remove('swipe-landed'), 500);
+        // v1.1.5: setView now clears `swipe-landed` on a real view change, so
+        // apply it AFTER navigation and never remove it on a timer. Keeping the
+        // suppression for the whole time the page is active avoids the viewIn
+        // replay (animation-name none->viewIn) that caused a delayed shake.
+        if (d.crossView) {
+          setView(d.target.view, true);
+          if (d.peerEl) d.peerEl.classList.add('swipe-landed');
+        } else {
+          switchDocTab(d.target.docTab);
         }
-        if (d.crossView) setView(d.target.view);
-        else switchDocTab(d.target.docTab);
       } else if (d.prevDocTab !== undefined && d.prevDocTab !== state.docTab) {
         // cancelled a cross-view drag into 资料: restore the previous sub-tab
         state.docTab = d.prevDocTab;
@@ -2108,7 +2116,7 @@
     if (NV && typeof NV.listNovels === 'function') {
       try { novels = await NV.listNovels(); } catch (e) { novels = []; }
     }
-    // v1.1.4: the "导入 TXT 小说" button was removed from the novel shelf —
+    // v1.1.5: the "导入 TXT 小说" button was removed from the novel shelf —
     // importing TXT is now done from the bottom "+" button (导入 TXT 小说).
     if (!novels.length) {
       host.innerHTML = '<div class="pdf-empty">' + icon('book') + '<p>书架还空着</p>' +
@@ -2145,7 +2153,7 @@
     // pages are hash-routed SPA apps: on load they show #/home (nothing to
     // scroll) and the actual reading content only appears after navigating to
     // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.1.4: save/restore BOTH the location.hash and the scroll
+    // restored 0. v1.1.5: save/restore BOTH the location.hash and the scroll
     // percentage — restore the hash first (which triggers the SPA to build the
     // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
@@ -2186,7 +2194,7 @@
 
     // Restore: wait for the document to have scrollable height, jump to the
     // saved hash chapter first (hash-routed SPA handbooks), then scroll to the
-    // saved percentage. v1.1.4 fix: a restore is needed whenever there IS a
+    // saved percentage. v1.1.5 fix: a restore is needed whenever there IS a
     // saved position — either a hash OR a non-trivial scroll percentage. The
     // old `restoreDone = !savedHash` skipped ALL plain long documents (no hash
     // routes), which is why a swapped-in normal HTML never remembered its spot.
@@ -2358,7 +2366,7 @@
       renderVisible(); updateActive();
     }
 
-    // Restore last reading position (v1.1.4): prefer saved page, else ratio.
+    // Restore last reading position (v1.1.5): prefer saved page, else ratio.
     if (rec && rec.progress && typeof rec.progress === 'object') {
       const savedPage = rec.progress.page;
       const savedRatio = rec.progress.ratio;
@@ -2464,7 +2472,7 @@
       (sub ? '<div class="grow-sub">' + esc(sub) + '</div>' : '') + '</div>' + (right || '') + '</div>';
     const arrow = '<span class="icon chev">' + icon('chev-right').replace('class="icon "', 'class="icon"') + '</span>';
 
-    // v1.1.4: preset liquid-glass colorway swatches. Each swatch previews its
+    // v1.1.5: preset liquid-glass colorway swatches. Each swatch previews its
     // own background/accent colors inline so the choice is visible at a glance.
     const swatchDefs = [
       { key: 'dark',        label: '深空紫', bg: '#0b1020', ac: '#8d7dff', blob: '#5b4bff' },
@@ -2506,7 +2514,7 @@
 
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.1.4 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v1.1.5 · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2826,7 +2834,7 @@
       rows.slice(0, 6).forEach(r => {
         const it = r.item;
         const label = r.action === 'create' ? '新增' : (r.action === 'update' ? '更新' : '跳过');
-        // v1.1.4: 预览里的题干/解析也要能渲染数学公式（$…$ / $$…$$），挂 data-math-text 后统一走 KaTeX。
+        // v1.1.5: 预览里的题干/解析也要能渲染数学公式（$…$ / $$…$$），挂 data-math-text 后统一走 KaTeX。
         const stemTxt = it.stem ? it.stem.replace(/\s+/g, ' ') : '（纯图片题）';
         html += '<div class="batch-item"><div class="bi-main">' +
           '<div class="bi-title" data-math-text="' + esc(stemTxt) + '">' + esc(stemTxt) + '</div>' +
@@ -2853,7 +2861,7 @@
       if (news.tags.length) parts.push('标签 ' + news.tags.join('、'));
       if (parts.length) html += '<div class="batch-newcfg">将自动新增：' + esc(parts.join('；')) + '</div>';
       box.innerHTML = html;
-      // v1.1.4: 预览里的 $…$ / $$…$$ 用 KaTeX 渲染，与题干/详情一致。
+      // v1.1.5: 预览里的 $…$ / $$…$$ 用 KaTeX 渲染，与题干/详情一致。
       renderDetailMath(box);
       updateFoot();
     }
@@ -3196,7 +3204,7 @@
         case 'toggle-collapse': {
           const ck = el.dataset.k;
           state.manageCollapsed[ck] = !state.manageCollapsed[ck];
-          // Persist so the expand/collapse state survives app restarts (v1.1.4).
+          // Persist so the expand/collapse state survives app restarts (v1.1.5).
           if (!state.config.manageCollapsed || typeof state.config.manageCollapsed !== 'object') state.config.manageCollapsed = {};
           state.config.manageCollapsed[ck] = state.manageCollapsed[ck];
           DB.putConfig(state.config);
