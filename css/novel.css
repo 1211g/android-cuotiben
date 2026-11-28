@@ -182,3 +182,83 @@
 .nv-cat-title{ flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .novel-catalog::-webkit-scrollbar{ width: 4px; }
 .novel-catalog::-webkit-scrollbar-thumb{ background: var(--nv-line); border-radius: 99px; }
+
+/* ---------- P4 增强：书签 / 搜索 / 阅读器内提示（全部 nv- 前缀） ---------- */
+.novel-top .nv-bookmark-btn{
+  min-width: 26px; text-align: center;
+  font-size: 19px; line-height: 1; color: var(--nv-muted);
+}
+.novel-top .nv-bookmark-btn.on{ color: #e6a817; }
+.nv-toast{
+  position: absolute; left: 50%; top: 46%; z-index: 8;
+  transform: translate(-50%, -50%) scale(.92);
+  max-width: 72%; padding: 10px 18px; border-radius: 12px;
+  background: rgba(0,0,0,.74); color: #fff; font-size: 13px;
+  text-align: center; pointer-events: none;
+  opacity: 0; transition: opacity .2s var(--ease-soft), transform .2s var(--ease-soft);
+}
+.nv-toast.show{ opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+/* 抽屉内标签页：目录 / 书签 / 搜索 */
+.nv-cat-tabs{
+  display: flex; gap: 6px; padding: 0 14px 12px;
+  border-bottom: 1px solid var(--nv-line);
+}
+.nv-cat-tab{
+  flex: 1; height: 34px; border-radius: 10px;
+  border: 1px solid var(--nv-line); background: transparent;
+  color: var(--nv-muted); font-size: 13px; font-weight: 650;
+}
+.nv-cat-tab.active{ color: var(--nv-accent); border-color: var(--nv-accent); background: rgba(141,125,255,.10); }
+.nv-bm-count{
+  display: inline-block; min-width: 16px; margin-left: 4px;
+  font-size: 11px; color: var(--nv-accent);
+}
+.nv-cat-panel[hidden]{ display: none; }
+
+/* 书签列表 */
+.nv-bm-item{
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 12px 16px; border: 0; border-bottom: 1px solid var(--nv-line);
+  background: transparent; color: var(--nv-text); text-align: left; font-size: 13px;
+  transition: background .18s, color .18s;
+}
+.nv-bm-item:active{ background: rgba(128,128,128,.14); }
+.nv-bm-item.active{ color: var(--nv-accent); background: rgba(141,125,255,.14); }
+.nv-bm-idx{ flex: none; width: 20px; font-size: 11px; color: var(--nv-muted); }
+.nv-bm-label{ flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nv-bm-time{ flex: none; font-size: 10.5px; color: var(--nv-muted); font-variant-numeric: tabular-nums; }
+
+/* 全文搜索 */
+.nv-search-row{
+  display: flex; gap: 8px; padding: 12px 16px;
+  border-bottom: 1px solid var(--nv-line);
+}
+.nv-search-input{
+  flex: 1; min-width: 0; height: 36px; padding: 0 10px;
+  border: 1px solid var(--nv-line); border-radius: 10px;
+  background: transparent; color: var(--nv-text); font-size: 13px;
+  outline: none;
+}
+.nv-search-input::placeholder{ color: var(--nv-muted); }
+.nv-search-go{
+  flex: none; height: 36px; padding: 0 14px;
+  border: 1px solid var(--nv-accent); border-radius: 10px;
+  background: transparent; color: var(--nv-accent); font-size: 13px; font-weight: 650;
+}
+.nv-search-go:active{ opacity: .6; }
+.nv-search-results{ padding-bottom: 8px; }
+.nv-search-result{
+  display: flex; gap: 10px; width: 100%;
+  padding: 12px 16px; border: 0; border-bottom: 1px solid var(--nv-line);
+  background: transparent; color: var(--nv-text); text-align: left;
+}
+.nv-search-result:active{ background: rgba(128,128,128,.14); }
+.nv-sr-idx{ flex: none; width: 20px; font-size: 11px; color: var(--nv-muted); }
+.nv-sr-body{ flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.nv-sr-meta{ font-size: 11.5px; color: var(--nv-accent); font-weight: 650; }
+.nv-sr-snippet{
+  font-size: 12.5px; line-height: 1.5; color: var(--nv-text);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nv-empty{ padding: 22px 16px; text-align: center; font-size: 12.5px; color: var(--nv-muted); }

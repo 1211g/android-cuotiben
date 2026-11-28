@@ -7,7 +7,7 @@
 | 形态 | 入口 | 适用 |
 | --- | --- | --- |
 | PWA / Web App | 浏览器打开 `index.html` | 立刻预览、添加到主屏幕 |
-| Android APK | `Noteee-v1.1.5.apk` | 真机安装，Android 8.0 (API 26) 及以上 |
+| Android APK | `Noteee-v1.1.6.apk` | 真机安装，Android 8.0 (API 26) 及以上 |
 | Android Studio 工程 | `android-studio/`（File → Open） | 用 IDE 直接 Run / Debug 到模拟器或真机 |
 
 > 全程不注册、不登录、不联网、不收集信息、无埋点无广告。数据只存在本机 IndexedDB；备份是本地 ZIP 文件。
@@ -28,7 +28,7 @@ python -m http.server 8777 --bind 127.0.0.1
 
 ### Android 安装
 
-直接把 `Noteee-v1.1.5.apk`（或 `Noteee-v1.1.5-签名版.apk`）传到手机安装即可。首次启动会**动态申请**相机 / 相册权限；拍照、选图都走系统标准接口。
+直接把 `Noteee-v1.1.6.apk`（或 `Noteee-v1.1.6-签名版.apk`）传到手机安装即可。首次启动会**动态申请**相机 / 相册权限；拍照、选图都走系统标准接口。
 
 ---
 
@@ -54,22 +54,33 @@ python -m http.server 8777 --bind 127.0.0.1
 
 ---
 
+## 二·补16、v1.1.6 更新说明
+
+- **A 数据安全**：IndexedDB 持久化请求（`requestPersist`）、配额错误中文提示（空间不足引导清理/备份）、内存兜底提示横幅；`mergeAll` 改为单事务原子合并；完整备份现在包含 PDF / HTML / TXT 资料（`docs/` + `docs.json`，含阅读进度/章节），带备份提醒与历史记录（`lastBackupAt`/`backupHistory`）。
+- **B 工程卫生**：`.gitignore` 修复乱码并把 17 个历史 APK 从版本库移除（磁盘保留），git gc 后仓库 534.92 MiB → 31.18 MiB；新增 `tests/`（13 项通过）；版本号改为 `version.json` 单一来源（`js/version.js` 由构建脚本自动生成）；Flutter 草稿移至 `flutter-draft/`。
+- **C 性能**：首页改为懒加载缩略图（`getAllImageThumbs`，不再启动即全量读图）；存储占用改用 `navigator.storage.estimate()`。
+- **D 安全**：HTML 阅读器 iframe 去掉 `allow-same-origin`（sandbox 仅保留脚本/弹窗/表单），改用 postMessage 桥上报阅读位置，功能不回退（真机验证 hash SPA 与普通文档均正常恢复）。
+- **P1 刷题模式**：底部「＋」新增「刷题模式」，逐题隐藏答案重做，会了/模糊/不会自动更新掌握状态，结束给正确率汇总。
+- **P2 回收站**：删除错题先入回收站（保留 7 天，可恢复/彻底删除/清空过期），设置页可进入。
+- **P4 体验增强**：平板横屏双栏卡片；小说书签 + 目录/书签/搜索三栏；PDF 目录大纲与全文搜索；统计新增掌握率趋势、科目×错因热力、录入活跃日历。
+- **打包 / 版本**：版本号 1.1.5 → **1.1.6**（Gradle `versionCode` 17，manifest 由 `version.json` 同步）；Service Worker 缓存 v32 → **cuotiben-v33**。`Noteee-v1.1.6.apk` 22264.3 KB，`cuotiben-debug.apk` 25834003 B。新增 `js/quiz.js` / `js/version.js`；DB_VERSION 2 → 3（新增 `trash` store）。
+
 ## 二·补15、v1.1.5 更新说明
 
 - **1. 修复滑动完成后偶发抖动**：跟手滑动翻页落地后，之前用定时器在 500 ms 时移除 `swipe-landed`，页面仍处于 `.active`，CSS 动画 `animation-name` 由 `none` 变回 `viewIn`，导致整页重新播放淡入 + 位移（表现为完成后抖一下）；同时 `enterSheet` 的 `.entering` 在 700 ms 兜底移除时又触发一次毛玻璃恢复闪烁。现在 `swipe-landed` 只在**真正切换视图**时清除（其余时间保持抑制落地动画），滑动落地调用 `setView(v, true)` 跳过入场动画与毛玻璃切换。真机 CDP 逐帧采样：落地后 300/600/850/1300 ms 全程 `animation:none`、`opacity:1`、`swipe-landed` 保留，无重播；普通 tab 点击仍正常播放 `viewIn`。
-- **打包 / 版本**：版本号 1.1.4 → **1.1.5**（Gradle `versionCode` 15→16，手工包 `--version-code 16`）；Service Worker 缓存 v31 → **cuotiben-v32**。`Noteee-v1.1.5.apk` 22208.1 KB / 244 entries，`cuotiben-debug.apk` 25774210 B / 246 entries。
+- **打包 / 版本**：版本号 1.1.4 → **1.1.5**（Gradle `versionCode` 15→16，手工包 `--version-code 16`）；Service Worker 缓存 v31 → **cuotiben-v33**。`Noteee-v1.1.6.apk` 22264.3 KB / 244 entries，`cuotiben-debug.apk` 25834003 B / 246 entries。
 
 ## 二·补14、v1.1.4 更新说明
 
 - **修复微信式滑动的两页重叠问题**：v1.1.3 的跟手滑动虽然逐帧跟随手指，但当前页带着 `viewIn` 动画（`fill-mode:both`，末帧 `transform` 会覆盖内联 transform），导致拖动时当前页实际不动、只有下一页从上方滑入，视觉上两页重叠（见用户反馈截图）。本轮在拖拽期间用 `#views.swiping .view.active{ animation:none }` 关闭该动画，使两页都通过内联 transform 实时跟随手指，渲染后的相邻边界严丝合缝（真机 CDP 实测 `home.right === pdf.left`，无重叠）。同时为落地页加 `swipe-landed` 标记抑制 `viewIn` 重新淡入，消除翻页完成瞬间的闪烁。
-- **打包 / 版本**：版本号 1.1.3 → **1.1.4**（Gradle `versionCode` 14→15）；Service Worker 缓存 v30 → **cuotiben-v31**。`Noteee-v1.1.4.apk` 22208.1 KB / 244 entries，`cuotiben-debug.apk` 25773614 B / 246 entries。
+- **打包 / 版本**：版本号 1.1.3 → **1.1.4**（Gradle `versionCode` 14→15）；Service Worker 缓存 v30 → **cuotiben-v31**。`Noteee-v1.1.4.apk` 22264.3 KB / 244 entries，`cuotiben-debug.apk` 25773614 B / 246 entries。
 
 ---
 
 ## 二·补13、v1.1.3 更新说明
 
 - **左右滑动改为微信式「跟手」切换**：此前滑动是「松手后才播放关键帧动画」（页面硬切 + 两页各自滑入滑出），手感与微信不一致。本轮重写滑动导航引擎：手指按下拖动时，当前页实时跟随手指位移（`translate3d` 每帧同步），相邻页面从屏幕边缘同步滑入，两页像一条连续的带子联动；松手时若位移过阈值或速度够快则吸附翻页（0.22s ease 完成），否则回弹原位。末页/首页越界时带 0.3x 阻尼。「资料 / 小说」子标签也用同样方式左右联动。动画只跑 transform 合成层，保持流畅。
-- **打包 / 版本**：版本号 1.1.2 → **1.1.3**（Gradle `versionCode` 13→14，手工包 `--version-code 14`）；Service Worker 缓存 v29 → **cuotiben-v30**。`Noteee-v1.1.3.apk` 22208.1 KB / 244 entries，`cuotiben-debug.apk` 25772950 B / 246 entries。
+- **打包 / 版本**：版本号 1.1.2 → **1.1.3**（Gradle `versionCode` 13→14，手工包 `--version-code 14`）；Service Worker 缓存 v29 → **cuotiben-v30**。`Noteee-v1.1.3.apk` 22264.3 KB / 244 entries，`cuotiben-debug.apk` 25772950 B / 246 entries。
 
 ---
 
@@ -77,7 +88,7 @@ python -m http.server 8777 --bind 127.0.0.1
 
 - **修复主题配色右上角 ✓ 不跟随选中项的 bug**：此前勾选标记 `.chk` 用绝对定位但父元素 `.theme-swatch` 无 `position:relative`，导致 ✓ 相对更外层定位，所有主题选中时 ✓ 都堆在「主题配色」卡片右上角。本轮把 `.chk` 移进 `.sw` 色方块内部（`.sw` 自带 `position:relative` + 圆角裁剪），✓ 精确贴在选中色板角上并随选择移动。真机验证：切换「淡绿 / 深空紫」时 ✓ 坐标准确落在各自色板内。
 - **左右滑动切换加方向缓冲过渡动画**：主界面 5 个页面（错题 → 资料·资料 → 资料·小说 → 管理 → 设置）左右滑动切换时，不再硬切：新页面从滑动方向滑入（`swipe-in-next/prev`）、旧页面向反方向淡出（`swipe-out-next/prev`），两者交接更自然；同 view 内的「资料 / 小说」子标签切换也带横向滑入（`doc-swipe-in-next/prev`）。动画只跑 transform/opacity 合成层，配合进入期间临时关闭毛玻璃，保持流畅。
-- **打包 / 版本**：版本号 1.1.1 → **1.1.2**（Gradle `versionCode` 12→13，手工包 `--version-code 13`）；Service Worker 缓存 v28 → **cuotiben-v29**。`Noteee-v1.1.2.apk` 22208.1 KB / 244 entries，`cuotiben-debug.apk` 25770510 B / 246 entries。
+- **打包 / 版本**：版本号 1.1.1 → **1.1.2**（Gradle `versionCode` 12→13，手工包 `--version-code 13`）；Service Worker 缓存 v28 → **cuotiben-v29**。`Noteee-v1.1.2.apk` 22264.3 KB / 244 entries，`cuotiben-debug.apk` 25834003 B / 246 entries。
 
 ---
 
@@ -85,7 +96,7 @@ python -m http.server 8777 --bind 127.0.0.1
 
 - **批量导入解析预览也能渲染数学公式**：此前只有详情页解析/题干支持 `$...$` / `$$...$$` 的 KaTeX 渲染，批量导入「解析预览」结果区里题干与解析仍是原始 `$...$` 文本。本轮给预览结果的 `.bi-title`（题干）与 `.bi-analysis`（解析）都挂上 `data-math-text`，并在渲染后调用 `renderDetailMath(box)`，预览即可见公式；`.bi-analysis` 单行省略、字号略小以贴合卡片布局。
 - **批量导入说明文档更新**：`批量导入说明.docx` 改为「Noteee · 批量导入说明」，补充公式写法（题干 / 正确答案 / 解析 / 错因均可写 `$...$`）、「解析预览里题干与解析公式即时渲染」、文件选择只筛 `.zip/.json`（CSV/TXT 改为粘贴到文本框）等说明。
-- **打包 / 版本**：版本号 1.1.0 → **1.1.1**（Gradle `versionCode` 11→12，手工包 `--version-code 12`）；Service Worker 缓存 v27 → **cuotiben-v28**。`Noteee-v1.1.1.apk` 22204.1 KB / 244 entries，`cuotiben-debug.apk` 25770510 B / 246 entries。
+- **打包 / 版本**：版本号 1.1.0 → **1.1.1**（Gradle `versionCode` 11→12，手工包 `--version-code 12`）；Service Worker 缓存 v27 → **cuotiben-v28**。`Noteee-v1.1.1.apk` 22204.1 KB / 244 entries，`cuotiben-debug.apk` 25834003 B / 246 entries。
 
 ---
 
@@ -220,8 +231,8 @@ cuotiben-app/
 │   ├── res/                   # 主题 / 字符串 / 启动图标
 │   ├── cuotiben.jks           # 持久化签名密钥（首次构建自动生成，勿删）
 │   └── build/                 # 构建中间产物（可删除）
-├── Noteee-v1.1.5.apk        # 已签名可安装 APK（v2 + v3 签名，4 字节对齐）
-├── Noteee-v1.1.5-签名版.apk          # 中文名副本
+├── Noteee-v1.1.6.apk        # 已签名可安装 APK（v2 + v3 签名，4 字节对齐）
+├── Noteee-v1.1.6-签名版.apk          # 中文名副本
 └── README.md
 ```
 
@@ -326,7 +337,7 @@ Tesseract 只输出字符与 bbox，不输出上下标/分式结构。`vision.js
 - **词库名自适应**：手工 `aapt2` 打包保留 `*.traineddata.gz`；Android Studio / AGP 的 aapt2 会把 `.gz` 解压并去掉后缀，变成 `*.traineddata`。`vision.js` 在原生 WebView 里先 HEAD 探测一次，自动选择 `gzip: true / false` 与对应文件名；浏览器 / PWA 固定用 `.gz`。两套包都能加载词库。
 - **纯白背景算法**：32px 分块估计纸面背景亮度（暗底取 15 分位，亮底取 85 分位）→ 3×3 平滑后双线性插值成背景图 → 按相对亮度 `g/B` 与彩色饱和度提取墨迹（彩色像素必须同时够暗，避免泛黄纸面被留成色块）→ 两轮去孤立噪点 → 非墨迹像素强制 `(255,255,255)`，墨迹按 `k=255/B` 白平衡保留原色（线稿模式压成 24–96 灰）→ 输出**无损 PNG**。缩略图/详情图也走 `lossless:true`，避免 WebP 有损压缩把纯白染成灰白。
 
-- **完全离线**：`ocr/` 目录里的引擎、wasm、词库与 KaTeX CSS/JS/字体、`pdf/` 里的 PDF.js 主库 / worker / 168 个 cmaps / 16 个标准字体全部随包内置；APK 不声明 `INTERNET` 权限，PWA 由 Service Worker（`CACHE = 'cuotiben-v32'`，预缓存前端 9 个 JS（含 `js/pdf.js`、`js/novel.js`）与 `css/novel.css`+ 8 个 OCR 资源 + 22 个 KaTeX 资源 + `PDF_ASSETS` 的 `pdf.min.js` / `pdf.worker.min.js`；cmaps / 标准字体由 fetch handler 按需缓存）提供离线兜底，不上传任何图片或 PDF。原生壳内不注册 SW，资源直接由 `shouldInterceptRequest` 从 assets 读取。
+- **完全离线**：`ocr/` 目录里的引擎、wasm、词库与 KaTeX CSS/JS/字体、`pdf/` 里的 PDF.js 主库 / worker / 168 个 cmaps / 16 个标准字体全部随包内置；APK 不声明 `INTERNET` 权限，PWA 由 Service Worker（`CACHE = 'cuotiben-v33'`，预缓存前端 9 个 JS（含 `js/pdf.js`、`js/novel.js`）与 `css/novel.css`+ 8 个 OCR 资源 + 22 个 KaTeX 资源 + `PDF_ASSETS` 的 `pdf.min.js` / `pdf.worker.min.js`；cmaps / 标准字体由 fetch handler 按需缓存）提供离线兜底，不上传任何图片或 PDF。原生壳内不注册 SW，资源直接由 `shouldInterceptRequest` 从 assets 读取。
 
 > Android 打包注意：`wasm / gz / js` 资源都大于 1 MB，`aapt2 link` 用 `-0 wasm -0 gz -0 js -0 txt -0 woff2` 让它们以 STORED 方式入包，否则 `AssetManager.open()` 解压大文件会触发 `UNCOMPRESS_DATA_MAX` 限制；原生层 `mimeOf()` 相应补充了 `application/wasm` / `application/gzip` / `font/woff2`。Gradle 侧因为 `.gz` 被解压改名，`androidResources.noCompress` 还要额外加 `traineddata`，同时由前端的「词库名自适应」配合。PDF 资源里只有 `pdf/pdf.worker.min.js`（1,087,212 B）超过 1 MB，其 `.js` 扩展名已被 `-0 js` / `noCompress 'js'` 覆盖为 STORED；`cmaps/*.bcmap` 与 `standard_fonts/*` 均小于 1 MB，原生 `mimeOf()` 回落到 `application/octet-stream`，PDF.js 用 `fetch(...).arrayBuffer()` 读取，无需扩充 MIME 表。
 
@@ -398,7 +409,7 @@ python build_apk.py
 3. `javac -bootclasspath android.jar` → `jar cf` → `d8 --lib android.jar --min-api 26` 生成 `classes.dex`
 4. 用 `classes.dex` 全量重建干净的 `unsigned.apk`（保留各 entry 的压缩方式，避免追加写导致 zip 头不一致）
 5. `zipalign -f 4` → `apksigner sign`（v2 + v3）→ `apksigner verify`
-6. 产出 `Noteee-v1.1.5.apk` 与中文名副本 `Noteee-v1.1.5-签名版.apk`
+6. 产出 `Noteee-v1.1.6.apk` 与中文名副本 `Noteee-v1.1.6-签名版.apk`
 
 > 签名密钥持久化在 `android/cuotiben.jks`（首次构建自动生成，口令 `cuotiben123`），构建只覆盖 `android/build/` 里的中间产物、不会动密钥，所以重复构建签名一致、可直接覆盖安装。`build_apk.py` 已改为复用该目录（不再整目录清空），`copy_web_assets()` 只删除本次已不存在的旧资源，避免杀毒软件或批量删除保护干扰重复构建。请自行保管好这个 jks；一旦删除并重新生成，新包与旧包签名不同，只能先卸载再安装（卸载会清数据，务必先导出备份 ZIP）。
 
@@ -408,14 +419,14 @@ python build_apk.py
 
 ```bash
 # 用脚本查到的同一套 build-tools 校验（也可直接写 D:\Android Projects\build-tools\34.0.0\...）
-"<SDK>/build-tools/34.0.0/zipalign.exe" -c -v 4 Noteee-v1.1.5.apk
-"<SDK>/build-tools/34.0.0/apksigner.bat" verify --verbose Noteee-v1.1.5.apk
-"<SDK>/build-tools/34.0.0/aapt.exe" dump badging Noteee-v1.1.5.apk
+"<SDK>/build-tools/34.0.0/zipalign.exe" -c -v 4 Noteee-v1.1.6.apk
+"<SDK>/build-tools/34.0.0/apksigner.bat" verify --verbose Noteee-v1.1.6.apk
+"<SDK>/build-tools/34.0.0/aapt.exe" dump badging Noteee-v1.1.6.apk
 ```
 
 > 本轮在 `E:\Vibecoding\ctb\cuotiben-app` 实跑 `build-apk.bat`（`apksigner verify` 通过）与 `gradle --offline assembleDebug`（`BUILD SUCCESSFUL in 11s`），两种构建方式均正常，产物见下。
 
-本次交付包校验结果：`Verifies`，v2 = true、v3 = true、Number of signers: 1，`zipalign -c 4` 通过，`sdkVersion:26`、`targetSdkVersion:34`、竖屏、`application-label:'错题本'`，包含 `classes.dex`、`resources.arsc` 与 **236 个 `assets/www/*` 文件**（`ocr/` 含 22 个 KaTeX 资源，`pdf/` 186 个 = 2 个 JS + 168 个 cmaps + 16 个标准字体）；超过 1 MB 的 `pdf/pdf.worker.min.js`（1,087,212 B）与 wasm / 词库 / glue 资源均为 STORED（bad-compressed = 0）。签名包 `Noteee-v1.1.5.apk` 22208.1 KB / 244 entries；Android Studio debug 包 `android-studio/app/build/outputs/apk/debug/app-debug.apk` 25770510 B / 246 entries。两包逐项校验：`js/app.js` 含 `chen5` / `openPdfLibrary` / `openPdfViewer` / `.pdf-sheet`，设置页渲染段无「批量导入错题」；`index.html` 含 `#btnPdf` 与 `js/pdf.js`；`js/pdf.js`、`pdf/pdf.min.js`、`pdf/pdf.worker.min.js` 均存在且为 STORED；`sw.js` 为 `CACHE='cuotiben-v32'` 且含 `PDF_ASSETS`；`css/glass.css` 含 PDF LIBRARY + VIEWER 样式块与 `.sheet-full` 的状态栏避让。
+本次交付包校验结果：`Verifies`，v2 = true、v3 = true、Number of signers: 1，`zipalign -c 4` 通过，`sdkVersion:26`、`targetSdkVersion:34`、竖屏、`application-label:'错题本'`，包含 `classes.dex`、`resources.arsc` 与 **236 个 `assets/www/*` 文件**（`ocr/` 含 22 个 KaTeX 资源，`pdf/` 186 个 = 2 个 JS + 168 个 cmaps + 16 个标准字体）；超过 1 MB 的 `pdf/pdf.worker.min.js`（1,087,212 B）与 wasm / 词库 / glue 资源均为 STORED（bad-compressed = 0）。签名包 `Noteee-v1.1.6.apk` 22264.3 KB / 244 entries；Android Studio debug 包 `android-studio/app/build/outputs/apk/debug/app-debug.apk` 25834003 B / 246 entries。两包逐项校验：`js/app.js` 含 `chen5` / `openPdfLibrary` / `openPdfViewer` / `.pdf-sheet`，设置页渲染段无「批量导入错题」；`index.html` 含 `#btnPdf` 与 `js/pdf.js`；`js/pdf.js`、`pdf/pdf.min.js`、`pdf/pdf.worker.min.js` 均存在且为 STORED；`sw.js` 为 `CACHE='cuotiben-v33'` 且含 `PDF_ASSETS`；`css/glass.css` 含 PDF LIBRARY + VIEWER 样式块与 `.sheet-full` 的状态栏避让。
 
 ### 更换应用图标
 
@@ -425,7 +436,7 @@ python build_apk.py
 python make_icons.py
 ```
 
-脚本会：按测量坐标 `CROP = (352, 346, 1698, 1702)` 裁出奶油圆角方块本体 → 居中裁方后缩放填满画幅（`cover_square`）→ 半径 `int(0.235*size)` 圆角 mask、`CREAM(250,247,236)` 填四角 → 192 / 512 PWA 图标、maskable（图形缩到中央 80% 安全区 + CREAM 底板）与 Android 五个密度的 `ic_launcher.png` 一次生成；favicon 走 `icons/icon-192.png`。改完重跑上面的 `build-apk.bat` / `build-gradle.bat` 即可。改动图标或前端资源（含 `pdf/`）时记得把 `sw.js` 的 `CACHE` 版本号 +1（当前为 cuotiben-v32），避免 PWA 缓存旧文件；同时确认 `build_apk.py` 的 `copy_web_assets()` 与 `android-studio/app/build.gradle` 的 `syncWebAssets` 都包含新增目录（本轮已为 `pdf` 补齐）。
+脚本会：按测量坐标 `CROP = (352, 346, 1698, 1702)` 裁出奶油圆角方块本体 → 居中裁方后缩放填满画幅（`cover_square`）→ 半径 `int(0.235*size)` 圆角 mask、`CREAM(250,247,236)` 填四角 → 192 / 512 PWA 图标、maskable（图形缩到中央 80% 安全区 + CREAM 底板）与 Android 五个密度的 `ic_launcher.png` 一次生成；favicon 走 `icons/icon-192.png`。改完重跑上面的 `build-apk.bat` / `build-gradle.bat` 即可。改动图标或前端资源（含 `pdf/`）时记得把 `sw.js` 的 `CACHE` 版本号 +1（当前为 cuotiben-v33），避免 PWA 缓存旧文件；同时确认 `build_apk.py` 的 `copy_web_assets()` 与 `android-studio/app/build.gradle` 的 `syncWebAssets` 都包含新增目录（本轮已为 `pdf` 补齐）。
 
 ### 模拟器实测（Android Studio AVD）
 
@@ -441,7 +452,7 @@ AVD `Medium_Phone_API_37.0` 装 `app-debug.apk` 后通过 WebView DevTools（CDP
 - **备注公式 / 长公式换行 / 封面**（浏览器 + 真机 WebView 实测）：含 `$a_2$`、`$\tan^3t\sim t^2$` 的备考备注渲染出 2–3 个 `.katex`、无残留 `$`；超长积分公式解析的 `.sheet-body` 横向溢出为 0；详情页「封面」按钮弹出「默认封面 / 导入图片作封面」选项，选默认后 `q.cover={mode:'subject'}` 且卡片缩略图变成 PNG dataURL，导入图片后变 `{mode:'image',data:...webp}`，恢复默认后 `cover=null`，编辑错题后封面保持不变。截图 `shot-formula-notes.png`、`shot-formula-notes-bottom.png`（浏览器）、`shot-3fix-emu.png`（真机封面弹层）、`shot-3fix-notes-emu.png`（真机备注公式 + 封面按钮）。
 - **4 点改造（PDF 导入 / 查看 + 设置页清理 + 备份目录修复 + 关于 chen5）**（浏览器 + 模拟器 CDP 实测）：首页顶栏 `#btnPdf`「查看 PDF」与 `#btnTheme` 同在 `.topbar-acts`（真机 x296 / x347，42×42 无重叠）；`Pdf.checkResources()` 两个 JS 均 `ok:true`；`#btnPdf` 打开 `.pdf-sheet`（表头「PDF 资料 / 导入」、空态与 `#pdfAddBtn`）；FAB 三项「直接录入错题 / 批量导入错题 / 导入 PDF」，第三项用 `#i-pdf` 图标。
 - 用 `DataTransfer` 把 599 B 的 `%PDF-1.4` 文件塞进 `#pdfFileInput` 触发 change → `DB.getAllPdfs()` 1 条、库自动刷新出 1 行「高中数学公式手册.pdf 599 B · 2026.11.17」；打开 viewer → `#pvLabel`「1 / 1」、canvas 896×560（CSS 448×280）、**像素扫描确认 6014 个墨迹像素、bbox [88,212,576,252]，`Hello Cuotiben PDF` 真实出字**；删除走「删除这份 PDF？」二次确认后回到空态。
-- 浏览器端 `caches.keys()` 只有 `cuotiben-v32`、48 entries，含 `/js/pdf.js`、`/pdf/pdf.min.js`、`/pdf/pdf.worker.min.js` 与按需缓存的 `/pdf/standard_fonts/LiberationSans-Regular.ttf`；原生壳按设计不注册 SW（`window.CuotiBridge` 存在时跳过），资源全部由 `shouldInterceptRequest` 从 APK assets 直供。
+- 浏览器端 `caches.keys()` 只有 `cuotiben-v33`、48 entries，含 `/js/pdf.js`、`/pdf/pdf.min.js`、`/pdf/pdf.worker.min.js` 与按需缓存的 `/pdf/standard_fonts/LiberationSans-Regular.ttf`；原生壳按设计不注册 SW（`window.CuotiBridge` 存在时跳过），资源全部由 `shouldInterceptRequest` 从 APK assets 直供。
 - 设置页：`/批量导入错题/` 0 次匹配；关于卡片 `个人自用版 · v1.1.4 · chen5`；「数据占用空间」显示 `0 道错题 · 0 张图片 · 1 份 PDF 599 B`；点「修改」→ `promptDialog` 标题「备份目录」→ 改为 `Download/CDP验证目录` 后 `DB.getConfig().backupDir` 与 DOM `.grow-sub` **同步更新**，再改回默认值同样生效，彻底修复早期 `showDirectoryPicker` 静默失效导致的「点击无效」。
 - 截图：`shot-pdf-home-emu.png`（真机首页顶栏多出「查看 PDF」）、`shot-pdf-library-emu.png`（PDF 资料库）、`shot-pdf-viewer-emu.png`（真机 PDF 渲染出字 + 翻页工具条）。
 - **交互升级实测（CACHE v15）**：底部 `− 140% +` 缩放控件已移除（`#pvZoom/#pvZoomIn/#pvZoomOut` 均不存在），只留上一页 / 下一页；页面自适应——wrap 411×776 时 canvas 386×241 整页装入（未溢出）；CDP `Input.dispatchTouchEvent` 模拟双指张开 → canvas `transform` 由 none 变 `scale(3)`，抬手后重绘为清晰版（canvas 2322×1451、墨迹像素 46491）；双击复位、关闭按钮经修正确认生效。
@@ -654,7 +665,7 @@ pathlib.Path("batch.json").write_text(
 
 | 形态 | 资源来源 | 缓存策略 |
 | --- | --- | --- |
-| 浏览器 / PWA | 站点静态文件 | `sw.js` 的 `CACHE = 'cuotiben-v32'` 预缓存 `js/pdf.js` + `PDF_ASSETS`（`pdf/pdf.min.js`、`pdf/pdf.worker.min.js`）；168 个 cmaps 与 16 个标准字体由 fetch handler 按需写入缓存（实测 `cuotiben-v32` 共 48 entries） |
+| 浏览器 / PWA | 站点静态文件 | `sw.js` 的 `CACHE = 'cuotiben-v33'` 预缓存 `js/pdf.js` + `PDF_ASSETS`（`pdf/pdf.min.js`、`pdf/pdf.worker.min.js`）；168 个 cmaps 与 16 个标准字体由 fetch handler 按需写入缓存（实测 `cuotiben-v33` 共 48 entries） |
 | Android APK | `assets/www/pdf/**` | 原生壳不注册 SW，`shouldInterceptRequest` 把 `https://cuotiben.local/pdf/**` 直接映射到 APK assets；`build_apk.py` 与 `build.gradle` 均把 `pdf/` 纳入拷贝 / 同步 |
 
 ### 10.4 打包注意
@@ -665,7 +676,7 @@ pathlib.Path("batch.json").write_text(
 
 ### 10.5 实测记录
 
-- 浏览器：导入 593 B 的一页 PDF → 库出现 1 行 → viewer 顶部「1 / 1」、canvas 448×280、像素采样有墨迹 → 双指缩放 / 双击复位 / 连续滚动跨页 / 点页码跳页 → 删除二次确认后回到空态；`caches.keys()` = `cuotiben-v32`。
+- 浏览器：导入 593 B 的一页 PDF → 库出现 1 行 → viewer 顶部「1 / 1」、canvas 448×280、像素采样有墨迹 → 双指缩放 / 双击复位 / 连续滚动跨页 / 点页码跳页 → 删除二次确认后回到空态；`caches.keys()` = `cuotiben-v33`。
 - Android 模拟器（AVD `Medium_Phone_API_37.0`，Chrome/145 WebView CDP）：`location.href = https://cuotiben.local/`、`Pdf.checkResources()` 两个 JS 均 `ok:true`；导入 599 B PDF 后 `DB.getAllPdfs()` 1 条、库自动刷新；viewer canvas 896×560、扫描出 **6014 个墨迹像素、bbox [88,212,576,252]**，等于真实渲染出 `Hello Cuotiben PDF`；备份目录改 `Download/CDP验证目录` 后 DB 与 DOM 同步更新、改回默认值亦生效；设置页无「批量导入错题」、关于含 `chen5`。
 - 截图：`shot-pdf-home-emu.png`、`shot-pdf-library-emu.png`、`shot-pdf-viewer-emu.png`（`E:\Vibecoding\ctb\screenshots\`）。
 - 注意：CDP 的 `Page.captureScreenshot` 在本 WebView 上抓不到加速 2D canvas 图层，所以上述真机截图用 `adb shell screencap` 取真实帧缓冲；canvas 本身的内容用 `canvas.toDataURL()` 校验。

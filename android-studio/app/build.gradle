@@ -11,6 +11,17 @@ def legacyAndroid = rootProject.file('../android')
 def webRoot = rootProject.file('..')
 def webAssets = rootProject.file('../android/build/assets/www')
 
+// version.json at the repo root is the single source of truth for the app version.
+// Fallbacks keep Gradle configuration working if the file is absent.
+def appVersion = '1.1.5'
+def appVersionCode = 16
+def versionFile = rootProject.file('../version.json')
+if (versionFile.exists()) {
+    def ver = new groovy.json.JsonSlurper().parse(versionFile)
+    appVersion = ver.version as String
+    appVersionCode = ver.versionCode as int
+}
+
 android {
     namespace 'com.cuotiben.app'
     compileSdk 34
@@ -30,8 +41,8 @@ android {
         applicationId 'com.cuotiben.app'
         minSdk 26
         targetSdk 34
-        versionCode 16
-        versionName '1.1.5'
+        versionCode appVersionCode
+        versionName appVersion
     }
 
     signingConfigs {
@@ -89,6 +100,21 @@ tasks.withType(JavaCompile).configureEach {
 // externally, which Gradle's input snapshot would otherwise not notice.
 def syncWebAssetsTask = tasks.register('syncWebAssets', Sync) {
     outputs.upToDateWhen { false }
+    doFirst {
+        // Regenerate js/version.js from version.json (single source of truth)
+        // before the web assets are synced into the APK.
+        def vf = rootProject.file('../version.json')
+        def v = vf.exists() ? new groovy.json.JsonSlurper().parse(vf) : null
+        def vn = v ? v.version as String : appVersion
+        def vc = v ? v.versionCode as int : appVersionCode
+        def target = new File(webRoot, 'js/version.js')
+        target.parentFile.mkdirs()
+        target.setText(
+            "// Generated from version.json by build_apk.py / android-studio/app/build.gradle.\n" +
+            "// Do not edit by hand: the version is the single source of truth in version.json.\n" +
+            "window.APP_VERSION = { version: '" + vn + "', code: " + vc + " };\n",
+            'UTF-8')
+    }
     from(webRoot) {
         include 'index.html'
         include 'manifest.json'

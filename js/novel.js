@@ -10,6 +10,8 @@
   const FONT_KEY = 'noteee_novel_font';
   const THEME_KEY = 'noteee_novel_theme';
   const IMMERSIVE_KEY = 'noteee_novel_immersive';
+  const BOOKMARK_KEY = 'noteee_novel_bookmarks';
+  const CHARS_PER_PAGE = 600;
   const FONT_DEFAULT = 20, FONT_MIN = 14, FONT_MAX = 32, FONT_STEP = 2;
   const THEMES = ['paper', 'eye', 'night'];
   const THEME_LABEL = { paper: '纸张', eye: '护眼', night: '夜间' };
@@ -119,6 +121,84 @@
     try { global.localStorage.setItem(IMMERSIVE_KEY, v ? '1' : '0'); } catch (e) { /* noop */ }
   }
 
+  /* ---------- 书签（localStorage：noteee_novel_bookmarks） ---------- */
+  function readBookmarks() {
+    try {
+      const raw = global.localStorage.getItem(BOOKMARK_KEY);
+      const obj = raw ? JSON.parse(raw) : null;
+      return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+    } catch (e) { return {}; }
+  }
+  function writeBookmarks(obj) {
+    try { global.localStorage.setItem(BOOKMARK_KEY, JSON.stringify(obj)); } catch (e) { /* noop */ }
+  }
+  /* 返回该书的书签数组副本。 */
+  function listBookmarks(id) {
+    const all = readBookmarks();
+    const arr = all[String(id == null ? '' : id)];
+    return Array.isArray(arr) ? arr.slice() : [];
+  }
+  /* 在同一 chapter+page 上切换书签；返回 { added, bookmarks }。 */
+  function toggleBookmark(id, chapter, page, label) {
+    const key = String(id == null ? '' : id);
+    const all = readBookmarks();
+    const arr = Array.isArray(all[key]) ? all[key].slice() : [];
+    const c = Math.max(0, Math.floor(Number(chapter) || 0));
+    const p = Math.max(0, Math.floor(Number(page) || 0));
+    let pos = -1;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] && (arr[i].chapter | 0) === c && (arr[i].page | 0) === p) { pos = i; break; }
+    }
+    let added;
+    if (pos >= 0) { arr.splice(pos, 1); added = false; }
+    else {
+      arr.push({
+        chapter: c, page: p,
+        label: label || ('第 ' + (c + 1) + ' 章 · 第 ' + (p + 1) + ' 页'),
+        at: Date.now()
+      });
+      added = true;
+    }
+    if (arr.length) all[key] = arr; else delete all[key];
+    writeBookmarks(all);
+    return { added: added, bookmarks: arr };
+  }
+
+  /* ---------- 全文搜索：返回 [{chapter, page, snippet}]，最多 50 条 ---------- */
+  async function search(id, query) {
+    const q = String(query == null ? '' : query).trim().toLowerCase();
+    if (!q) return [];
+    let rec;
+    try { rec = await DB.getPdf(id); } catch (e) { rec = null; }
+    if (!rec || rec.kind !== 'txt') return [];
+    const data = typeof rec.data === 'string' ? rec.data : '';
+    const chapters = (Array.isArray(rec.chapters) && rec.chapters.length) ? rec.chapters : parseChapters(data);
+    const lower = data.toLowerCase();
+    const out = [];
+    let from = 0;
+    while (out.length < 50) {
+      const idx = lower.indexOf(q, from);
+      if (idx < 0) break;
+      let ci = 0;
+      for (let k = 0; k < chapters.length; k++) {
+        const st = chapters[k].start | 0;
+        const en = chapters[k].end | 0;
+        if (idx >= st && idx < (en > st ? en : data.length)) { ci = k; break; }
+      }
+      const ch = chapters[ci];
+      const startOff = Math.max(0, ch ? (ch.start | 0) : 0);
+      const page = Math.max(0, Math.floor((idx - startOff) / CHARS_PER_PAGE));
+      const s = Math.max(0, idx - 30);
+      const e = Math.min(data.length, idx + q.length + 30);
+      let snippet = data.slice(s, e).replace(/\s+/g, ' ').trim();
+      if (s > 0) snippet = '…' + snippet;
+      if (e < data.length) snippet = snippet + '…';
+      out.push({ chapter: ci, page: page, snippet: snippet });
+      from = idx + Math.max(1, q.length);
+    }
+    return out;
+  }
+
   /* 打开全屏阅读器。返回控制器 { close }。 */
   async function openReader(id) {
     const host = document.getElementById('overlayRoot');
@@ -147,6 +227,9 @@
     let pages = [];        // pages[chapterIdx] = [htmlPage0, htmlPage1, ...]
     const paginated = new Set();   // 已分页的章节索引集合（懒分页：只在需要时分页当前章）
     let resizeTimer = null;
+    let toastTimer = null;
+    let searchInput = null;
+    let catTab = 'chapters';
 
     const root = document.createElement('div');
     root.className = 'overlay novel-overlay';
@@ -156,6 +239,7 @@
         '<div class="novel-top">' +
           '<button class="icon-btn" data-x="cancel" aria-label="返回">' + U.icon('arrow-left') + '</button>' +
           '<h2 id="nvTitle">' + U.esc(rec.name || '未命名小说') + '</h2>' +
+          '<button class="icon-btn nv-bookmark-btn" id="nvBookmark" aria-label="书签">☆</button>' +
           '<button class="icon-btn" id="nvCatalogBtn" aria-label="目录">' + U.icon('list') + '</button>' +
         '</div>' +
         '<div class="novel-content" id="nvContent"></div>' +
@@ -176,6 +260,7 @@
         '</div>' +
         '<div class="nv-cat-scrim" id="nvCatScrim" hidden></div>' +
         '<div class="novel-catalog" id="nvCatalog" hidden></div>' +
+        '<div class="nv-toast" id="nvToast"></div>' +
       '</div>';
 
     const reader = root.querySelector('.novel-reader');
@@ -185,6 +270,7 @@
     const prevBtn = root.querySelector('#nvPrev');
     const nextBtn = root.querySelector('#nvNext');
     const catalogBtn = root.querySelector('#nvCatalogBtn');
+    const bookmarkBtn = root.querySelector('#nvBookmark');
     const catalog = root.querySelector('#nvCatalog');
     const scrim = root.querySelector('#nvCatScrim');
     const tools = root.querySelector('#nvTools');
@@ -218,6 +304,56 @@
       applyTheme(); saveTheme(theme);
       U.toast('已切换到' + THEME_LABEL[theme] + '主题', 'info');
       U.haptic(8);
+    }
+
+    /* 阅读器内轻量提示（位于 reader 覆盖层内）。 */
+    function nvToast(msg) {
+      const el = root.querySelector('#nvToast');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1500);
+    }
+    function formatTime(ts) {
+      const d = new Date(Number(ts) || Date.now());
+      function p(n) { return n < 10 ? '0' + n : String(n); }
+      return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    /* 跳到指定章/页：复用 goChapter，再定页。 */
+    function jumpTo(chapter, page) {
+      goChapter(chapter);
+      const cp = ensureChapter(cur);
+      const p = Math.min(Math.max(0, Math.floor(Number(page) || 0)), Math.max(0, cp.length - 1));
+      if (p !== curPage) { curPage = p; renderPage(null); persist(); }
+      updateBookmarkState();
+    }
+    /* 搜索结果页号是估算值；点击时用已分页 HTML 精确校正到实际页。 */
+    function refinePage(chapter, page, query) {
+      const cp = ensureChapter(chapter);
+      const q = String(query || '').toLowerCase();
+      if (!q || !cp || !cp.length) return page;
+      for (let i = 0; i < cp.length; i++) {
+        let text = '';
+        try {
+          const tmp = document.createElement('div');
+          tmp.innerHTML = cp[i];
+          text = (tmp.textContent || '').toLowerCase();
+        } catch (e) { /* noop */ }
+        if (text.indexOf(q) >= 0) return i;
+      }
+      return page;
+    }
+    function updateBookmarkState() {
+      if (!bookmarkBtn) return;
+      const list = listBookmarks(id);
+      let marked = false;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i] && (list[i].chapter | 0) === cur && (list[i].page | 0) === curPage) { marked = true; break; }
+      }
+      bookmarkBtn.classList.toggle('on', marked);
+      bookmarkBtn.textContent = marked ? '★' : '☆';
+      bookmarkBtn.setAttribute('aria-label', marked ? '取消书签' : '添加书签');
     }
 
     /* 只分页第 ci 章：把该章正文按内容区高度切成多页（隐藏测量容器逐段量高），懒分页。 */
@@ -283,6 +419,7 @@
       prevBtn.disabled = (cur === 0 && curPage === 0);
       nextBtn.disabled = (cur === total - 1 && curPage >= cp.length - 1);
       updateCatalogHighlight();
+      updateBookmarkState();
       persist();
     }
     /* dir: 1 下一页 / -1 上一页。章内翻页，跨章到该章首页/末页。 */
@@ -315,12 +452,88 @@
     }
 
     function buildCatalog() {
-      catalog.innerHTML = '<div class="nv-cat-head">目录 · 共 ' + total + ' 章</div>' +
-        chapters.map(function (c, i) {
-          return '<button class="nv-cat-item' + (i === cur ? ' active' : '') + '" data-idx="' + i + '">' +
-            '<span class="nv-cat-idx">' + (i + 1) + '</span>' +
-            '<span class="nv-cat-title">' + U.esc(c.title || ('第 ' + (i + 1) + ' 章')) + '</span>' +
+      catalog.innerHTML =
+        '<div class="nv-cat-tabs">' +
+          '<button class="nv-cat-tab active" data-tab="chapters">目录</button>' +
+          '<button class="nv-cat-tab" data-tab="bookmarks">书签<span class="nv-bm-count" id="nvBmCount"></span></button>' +
+          '<button class="nv-cat-tab" data-tab="search">搜索</button>' +
+        '</div>' +
+        '<div class="nv-cat-panel" id="nvPanelChapters">' +
+          '<div class="nv-cat-head">目录 · 共 ' + total + ' 章</div>' +
+          chapters.map(function (c, i) {
+            return '<button class="nv-cat-item' + (i === cur ? ' active' : '') + '" data-idx="' + i + '">' +
+              '<span class="nv-cat-idx">' + (i + 1) + '</span>' +
+              '<span class="nv-cat-title">' + U.esc(c.title || ('第 ' + (i + 1) + ' 章')) + '</span>' +
+              '</button>';
+          }).join('') +
+        '</div>' +
+        '<div class="nv-cat-panel" id="nvPanelBookmarks" hidden></div>' +
+        '<div class="nv-cat-panel" id="nvPanelSearch" hidden>' +
+          '<div class="nv-search-row">' +
+            '<input class="nv-search-input" id="nvSearchInput" type="search" placeholder="搜索全文关键词" />' +
+            '<button class="nv-search-go" id="nvSearchGo">搜索</button>' +
+          '</div>' +
+          '<div class="nv-search-results" id="nvSearchResults"></div>' +
+        '</div>';
+      searchInput = catalog.querySelector('#nvSearchInput');
+      renderBookmarkList();
+    }
+    function switchCatTab(tab) {
+      catTab = tab;
+      const tabs = catalog.querySelectorAll('.nv-cat-tab');
+      for (let i = 0; i < tabs.length; i++) {
+        tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
+      }
+      catalog.querySelector('#nvPanelChapters').hidden = tab !== 'chapters';
+      catalog.querySelector('#nvPanelBookmarks').hidden = tab !== 'bookmarks';
+      catalog.querySelector('#nvPanelSearch').hidden = tab !== 'search';
+      if (tab === 'bookmarks') renderBookmarkList();
+    }
+    function renderBookmarkList() {
+      const panel = catalog.querySelector('#nvPanelBookmarks');
+      if (!panel) return;
+      const list = listBookmarks(id);
+      const countEl = catalog.querySelector('#nvBmCount');
+      if (countEl) countEl.textContent = list.length ? String(list.length) : '';
+      if (!list.length) {
+        panel.innerHTML = '<div class="nv-empty">暂无书签 · 点顶部 ☆ 添加</div>';
+        return;
+      }
+      panel.innerHTML = '<div class="nv-cat-head">书签 · ' + list.length + ' 条</div>' +
+        list.map(function (b, i) {
+          const bc = b.chapter | 0, bp = b.page | 0;
+          return '<button class="nv-bm-item' + (bc === cur && bp === curPage ? ' active' : '') + '" data-chapter="' + bc + '" data-page="' + bp + '">' +
+            '<span class="nv-bm-idx">' + (i + 1) + '</span>' +
+            '<span class="nv-bm-label">' + U.esc(b.label || ('第 ' + (bc + 1) + ' 章 · 第 ' + (bp + 1) + ' 页')) + '</span>' +
+            '<span class="nv-bm-time">' + formatTime(b.at) + '</span>' +
             '</button>';
+        }).join('');
+    }
+    async function runSearch() {
+      const results = catalog.querySelector('#nvSearchResults');
+      if (!results || !searchInput) return;
+      const q = (searchInput.value || '').trim();
+      if (!q) { results.innerHTML = '<div class="nv-empty">请输入关键词</div>'; return; }
+      results.innerHTML = '<div class="nv-empty">搜索中…</div>';
+      let matches;
+      try { matches = await search(id, q); }
+      catch (e) {
+        results.innerHTML = '<div class="nv-empty">搜索失败：' + U.esc((e && e.message) || '未知错误') + '</div>';
+        return;
+      }
+      if (closed || !results || catTab !== 'search') return;
+      if (!matches.length) { results.innerHTML = '<div class="nv-empty">未找到“' + U.esc(q) + '”</div>'; return; }
+      results.innerHTML = '<div class="nv-cat-head">找到 ' + matches.length + ' 条结果</div>' +
+        matches.map(function (m, i) {
+          const mc = m.chapter | 0, mp = m.page | 0;
+          const title = (chapters[mc] && chapters[mc].title) || ('第 ' + (mc + 1) + ' 章');
+          return '<button class="nv-search-result" data-chapter="' + mc + '" data-page="' + mp + '">' +
+            '<span class="nv-sr-idx">' + (i + 1) + '</span>' +
+            '<span class="nv-sr-body">' +
+              '<span class="nv-sr-meta">' + U.esc(title) + ' · 约第 ' + (mp + 1) + ' 页</span>' +
+              '<span class="nv-sr-snippet">' + U.esc(m.snippet) + '</span>' +
+            '</span>' +
+          '</button>';
         }).join('');
     }
     function updateCatalogHighlight() {
@@ -370,8 +583,37 @@
     catalogBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleCatalog(); U.haptic(8); });
     scrim.addEventListener('click', function () { toggleCatalog(false); });
     catalog.addEventListener('click', function (e) {
+      const tab = e.target.closest ? e.target.closest('.nv-cat-tab') : null;
+      if (tab) { switchCatTab(tab.getAttribute('data-tab')); U.haptic(8); return; }
+      const go = e.target.closest ? e.target.closest('#nvSearchGo') : null;
+      if (go) { runSearch(); U.haptic(8); return; }
+      const bm = e.target.closest ? e.target.closest('.nv-bm-item') : null;
+      if (bm) {
+        jumpTo(parseInt(bm.getAttribute('data-chapter'), 10), parseInt(bm.getAttribute('data-page'), 10));
+        toggleCatalog(false); U.haptic(8); return;
+      }
+      const sr = e.target.closest ? e.target.closest('.nv-search-result') : null;
+      if (sr) {
+        const ci = parseInt(sr.getAttribute('data-chapter'), 10);
+        const pg = parseInt(sr.getAttribute('data-page'), 10);
+        jumpTo(ci, refinePage(ci, pg, searchInput ? searchInput.value : ''));
+        toggleCatalog(false); U.haptic(8); return;
+      }
       const btn = e.target.closest ? e.target.closest('.nv-cat-item') : null;
       if (btn) { goChapter(parseInt(btn.getAttribute('data-idx'), 10)); toggleCatalog(false); }
+    });
+    if (searchInput) searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); runSearch(); }
+    });
+    bookmarkBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const label = (chapters[cur] && chapters[cur].title ? chapters[cur].title : ('第 ' + (cur + 1) + ' 章')) +
+        ' · 第 ' + (curPage + 1) + ' 页';
+      const res = toggleBookmark(id, cur, curPage, label);
+      updateBookmarkState();
+      renderBookmarkList();
+      nvToast(res.added ? '已加入书签' : '已移除书签');
+      U.haptic(8);
     });
     fontDown.addEventListener('click', function () { setFont(font - FONT_STEP); });
     fontUp.addEventListener('click', function () { setFont(font + FONT_STEP); });
@@ -426,6 +668,7 @@
     cleanups.push(function () {
       global.removeEventListener('resize', onResize);
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (toastTimer) clearTimeout(toastTimer);
     });
 
     document.addEventListener('keydown', onKey);
@@ -439,6 +682,9 @@
     parseChapters: parseChapters,
     importTxt: importTxt,
     listNovels: listNovels,
-    openReader: openReader
+    openReader: openReader,
+    toggleBookmark: toggleBookmark,
+    listBookmarks: listBookmarks,
+    search: search
   };
 })(window);

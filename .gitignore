@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 
-# Regenerable build outputs (keep only the two deliverable APKs at repo root)
+# Regenerable build outputs
 android/build/
 android-studio/build/
 android-studio/.gradle/
@@ -10,11 +10,13 @@ android-studio/.idea/
 android-studio/local.properties
 android/assets/www/
 
-# Signing material & duplicate/old APK copies (do not publish private key)
+# Signing material (do not publish private key)
 android/cuotiben.jks
 *.idsig
-错题本-v1.0.0.apk
-Noteee-v1.*-签名版.apk
+
+# APK deliverables —— 构建产物，通过文件卡片直接交付给用户，不属于源码。
+# 所有 APK（含交付副本）都不纳入版本控制；文件仍保留在工作区供交付。
+*.apk
 
 # One-off verification / temp artifacts
 _*.py

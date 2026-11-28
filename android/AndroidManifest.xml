@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.cuotiben.app"
-    android:versionCode="16"
-    android:versionName="1.1.5">
+    android:versionCode="17"
+    android:versionName="1.1.6">
 
     <!-- 个人自用：不申请 INTERNET 权限，全部内容由本地 assets 提供，不联网、不上传。 -->
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />

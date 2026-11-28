@@ -18,6 +18,7 @@
 项目目录可以整体搬走；构建工具链（SDK / JDK）仍可用环境变量指定，
 或自动回退到本机常见安装位置（见 find_sdk / find_jdk）。
 """
+import json
 import os
 import shutil
 import subprocess
@@ -43,10 +44,25 @@ EXTRA_JDK_DIRS = [
 ]
 EXTRA_TOOLCHAIN_DIRS = [WORKSPACE / ".toolchain", LEGACY_WORKSPACE / ".toolchain"]
 
-VERSION_CODE = "16"
-VERSION_NAME = "1.1.5"
-APP_NAME = "Noteee-v1.1.5.apk"
-CN_NAME = "Noteee-v1.1.5-签名版.apk"
+# version.json at the repo root is the single source of truth for the app version.
+# The fallbacks keep this script usable if the file is missing (partial checkout).
+_FALLBACK_VERSION_NAME = "1.1.5"
+_FALLBACK_VERSION_CODE = "16"
+
+
+def load_version():
+    """Return (version_name, version_code) read from version.json, as strings."""
+    try:
+        with (HERE / "version.json").open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return str(data["version"]), str(data["versionCode"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return _FALLBACK_VERSION_NAME, _FALLBACK_VERSION_CODE
+
+
+VERSION_NAME, VERSION_CODE = load_version()
+APP_NAME = "Noteee-v%s.apk" % VERSION_NAME
+CN_NAME = "Noteee-v%s-签名版.apk" % VERSION_NAME
 STOREPASS = "cuotiben123"
 ALIAS = "cuotiben"
 # 放在 android/ 而非 android/build/：build/ 每次构建会清空，密钥必须持久保留，
@@ -141,7 +157,25 @@ def find_jdk():
     raise SystemExit("找不到 JDK 17（需要 javac.exe / jar.exe / keytool.exe），请设置 JAVA_HOME。")
 
 
+def write_js_version():
+    """Regenerate js/version.js from version.json so the web app sees the same
+    version as the APK. Idempotent: only writes when the content changes."""
+    target = HERE / "js" / "version.js"
+    content = (
+        "// Generated from version.json by build_apk.py / android-studio/app/build.gradle.\n"
+        "// Do not edit by hand: the version is the single source of truth in version.json.\n"
+        "window.APP_VERSION = { version: '%s', code: %d };\n"
+        % (VERSION_NAME, int(VERSION_CODE))
+    )
+    if not target.exists() or target.read_text(encoding="utf-8") != content:
+        target.write_text(content, encoding="utf-8")
+        log("regenerated js/version.js -> %s (%s)" % (VERSION_NAME, VERSION_CODE))
+
+
 def copy_web_assets():
+    # Keep the in-repo generated file in sync with version.json before copying
+    # the js/ tree into assets/www.
+    write_js_version()
     www = OUT / "assets" / "www"
     www.mkdir(parents=True, exist_ok=True)
     wanted = set()

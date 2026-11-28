@@ -14,6 +14,7 @@
      --------------------------------------------------------- */
   const state = {
     view: 'home',
+    persisted: false,      // A1: navigator.storage.persisted() status
     questions: [],
     thumbs: new Map(),
     imageCount: 0,
@@ -66,13 +67,21 @@
     if (state.config && state.config.manageCollapsed && typeof state.config.manageCollapsed === 'object') {
       state.manageCollapsed = Object.assign({}, state.manageCollapsed, state.config.manageCollapsed);
     }
+    // A1: ask the browser/WebView to keep our storage under pressure.
+    try {
+      if (typeof DB.requestPersist === 'function') await DB.requestPersist();
+      state.persisted = (typeof DB.persisted === 'function') ? await DB.persisted() : false;
+    } catch (e) { state.persisted = false; }
+    // P2: clean up trash records older than 7 days on every launch.
+    try { if (typeof DB.purgeExpiredTrash === 'function') await DB.purgeExpiredTrash(7); } catch (e) { }
     applyTheme(state.config.theme || 'dark');
     await refresh();
     bind();
     installSwipeNavigation();
     setView('home');
     updateGreeting();
-    if (DB.isMemory()) toast('本地数据库不可用，数据仅本次会话有效', 'err');
+    showMemoryBanner();      // A3: persistent warning + export escape hatch
+    checkBackupReminder();   // A4: gentle "time to back up" banner
     // The native WebView shell serves assets locally and never needs a SW;
     // registering one there can bypass shouldInterceptRequest. PWA/browser still uses it.
     if ('serviceWorker' in navigator && !window.CuotiBridge && /^https?:$/.test(location.protocol)) {
@@ -87,8 +96,57 @@
     if (el) el.textContent = g + ' · 我的学习空间';
   }
 
+  /* A3: in memory-fallback mode a single startup toast is too weak — once the
+     user enters dozens of questions, closing the app loses everything. Keep a
+     persistent banner with an immediate "export JSON" escape hatch. */
+  function showMemoryBanner() {
+    const old = $('#memoryBanner'); if (old) old.remove();
+    if (!DB.isMemory()) return;
+    const b = document.createElement('div');
+    b.id = 'memoryBanner'; b.className = 'safety-banner danger';
+    b.innerHTML = icon('shield') + '<span>本地数据库不可用，数据只保存在本次会话中，关闭后会丢失。请尽快导出备份。</span>' +
+      '<button class="btn btn-sm" data-act="export-memory">导出 JSON</button>' +
+      '<button class="icon-btn" data-act="dismiss-memory" aria-label="关闭">' + icon('x') + '</button>';
+    const app = $('#app'); if (app) app.insertBefore(b, app.firstChild);
+  }
+
+  /* A4: remind the user to export a backup when none exists, it is older than
+     7 days, or at least 20 new questions were added since the last backup. */
+  function checkBackupReminder() {
+    const host = $('#backupTip'); if (host) host.remove();
+    if (DB.isMemory()) return;
+    const cfg = state.config || {};
+    if (cfg.backupTipHiddenAt && Date.now() - cfg.backupTipHiddenAt < 86400000) return;
+    const last = cfg.lastBackupAt || 0;
+    const days = last ? (Date.now() - last) / 86400000 : Infinity;
+    const added = state.questions.length - (cfg.lastBackupCount || 0);
+    if (last && days < 7 && added < 20) return;
+    const home = $('#view-home'); if (!home) return;
+    const b = document.createElement('div');
+    b.id = 'backupTip'; b.className = 'safety-banner tip';
+    b.innerHTML = icon('download') + '<span>' + (last ? '距上次备份已 ' + Math.floor(days) + ' 天' : '还没有备份过') +
+      '，当前新增 ' + Math.max(0, added) + ' 道错题。建议导出一份备份。</span>' +
+      '<button class="btn btn-sm" data-act="export">立即备份</button>' +
+      '<button class="icon-btn" data-act="dismiss-backup-tip" aria-label="稍后">' + icon('x') + '</button>';
+    home.insertBefore(b, home.querySelector('.home-tools'));
+  }
+  async function exportMemoryJson() {
+    try {
+      const data = { schema: DB.SCHEMA, exportedAt: Date.now(), app: 'Noteee',
+        questions: await DB.getAllQuestions(), images: await DB.getAllImages(), config: state.config };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      U.downloadBlob(blob, 'Noteee_紧急导出_' + Date.now() + '.json');
+      toast('已导出 ' + data.questions.length + ' 道错题');
+    } catch (e) { toast('导出失败：' + e.message, 'err'); }
+  }
+
   async function refresh() {
-    const [qs, imgs] = await Promise.all([DB.getAllQuestions(), DB.getAllImages()]);
+    // C1: list only needs thumbnails; full images are fetched on demand in
+    // openDetail()/openViewer() via DB.getImage(id). This keeps startup memory
+    // proportional to thumb size instead of the whole image library.
+    const qp = DB.getAllQuestions();
+    const ip = (typeof DB.getAllImageThumbs === 'function') ? DB.getAllImageThumbs() : DB.getAllImages();
+    const [qs, imgs] = await Promise.all([qp, ip]);
     state.questions = qs || [];
     state.thumbs = new Map((imgs || []).map(i => [i.id, i.thumb || i.full]));
     state.imageCount = (imgs || []).length;
@@ -739,19 +797,20 @@
     const q = state.questions.find(x => x.id === id);
     if (!q) return;
     const ok = await confirmDialog({
-      title: '删除这道错题？', desc: '「' + ((q.stem || '图片题目').slice(0, 30)) + '」及其关联图片会一并移除，删除后可在提示中撤销。',
+      title: '删除这道错题？', desc: '「' + ((q.stem || '图片题目').slice(0, 30)) + '」及其关联图片会移入回收站，保留 7 天，可随时恢复。',
       confirmText: '删除', danger: true
     });
     if (!ok) return;
-    const snapshot = JSON.parse(JSON.stringify(q));
     const imgs = await Promise.all((q.imageIds || []).map(i => DB.getImage(i)));
     const validImgs = imgs.filter(Boolean);
-    await DB.deleteQuestionBundle(id);
+    if (typeof DB.moveToTrash === 'function') await DB.moveToTrash(q, validImgs, q.imageIds || []);
+    else await DB.deleteQuestionBundle(id);
     await refresh();
     renderHome();
     if (state.view === 'stats') renderStats();
-    const t = toast('已删除 1 道错题', 'ok', '撤销', async () => {
-      await DB.saveQuestionBundle(snapshot, validImgs, []);
+    const t = toast('已移入回收站（保留 7 天）', 'ok', '撤销', async () => {
+      if (typeof DB.restoreFromTrash === 'function') await DB.restoreFromTrash(id);
+      else await DB.saveQuestionBundle(JSON.parse(JSON.stringify(q)), validImgs, []);
       await refresh(); renderHome(); toast('已恢复');
     });
     return t;
@@ -1733,6 +1792,50 @@
   /* ---------------------------------------------------------
      STATS
      --------------------------------------------------------- */
+  /* P4 stats enhancement: mastery trend, subject x cause heat, active calendar. */
+  function masteryTrendHtml(qs, weeks, maxW) {
+    const series = weeks.map(w => {
+      const inWeek = qs.filter(q => startOfWeek(q.createdAt) === w.w);
+      const m = inWeek.filter(q => q.mastery === 'mastered').length;
+      return { label: w.label, pct: inWeek.length ? Math.round(m / inWeek.length * 100) : 0, n: inWeek.length };
+    });
+    const bars = series.map((s, i) =>
+      '<div class="trend-col"><span class="trend-val">' + (s.n ? s.pct + '%' : '') + '</span>' +
+      '<span class="trend-bar" style="height:' + Math.max(3, s.pct / 100 * 84) + 'px;animation-delay:' + (i * 55) + 'ms"></span>' +
+      '<span class="trend-lbl">' + s.label + '</span></div>').join('');
+    return '<div class="chart-card"><div class="chart-title">' + icon('check-circle') + '掌握率趋势<small>每周新增题的掌握占比</small></div><div class="trend-bars">' + bars + '</div></div>';
+  }
+  function subjectCauseHeatHtml(qs) {
+    const subj = {}, causes = [];
+    qs.forEach(q => {
+      const s = q.subject || '未分类', c = q.cause || '未填写';
+      if (!subj[s]) subj[s] = {}; subj[s][c] = (subj[s][c] || 0) + 1;
+      if (causes.indexOf(c) < 0) causes.push(c);
+    });
+    const shown = causes.slice(0, 6);
+    const rows = Object.keys(subj).slice(0, 8).map(s =>
+      '<div class="heat-row"><span>' + esc(s) + '</span><span class="heat-cases">' +
+      shown.map(c => { const n = subj[s][c] || 0; return '<span class="heat-cell"' + (n ? ' style="background:rgba(141,125,255,' + (0.15 + Math.min(0.7, n / 8)) + ')"' : '') + '><b>' + (n || '·') + '</b>' + esc(c.slice(0, 4)) + '</span>'; }).join('') +
+      '</span></div>').join('');
+    return '<div class="chart-card"><div class="chart-title">' + icon('grid') + '科目 × 错因热力<small>定位薄弱章节</small></div><div class="heat-grid">' + rows + '</div></div>';
+  }
+  function activityCalendarHtml(qs) {
+    const days = [];
+    for (let i = 34; i >= 0; i--) {
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+      days.push({ key: d.getTime(), n: 0, label: (d.getMonth() + 1) + '/' + d.getDate() });
+    }
+    qs.forEach(q => {
+      const d = new Date(q.createdAt); d.setHours(0, 0, 0, 0);
+      const hit = days.find(x => x.key === d.getTime());
+      if (hit) hit.n++;
+    });
+    const cells = days.map(x => '<div class="cal-cell' + (x.n >= 5 ? ' l3' : x.n >= 3 ? ' l2' : x.n >= 1 ? ' l1' : '') + '" title="' + x.label + ' · ' + x.n + ' 题">' + x.n + '</div>').join('');
+    const active = days.filter(x => x.n > 0).length;
+    return '<div class="chart-card"><div class="chart-title">' + icon('chart') + '录入活跃日历<small>近 35 天 · ' + active + ' 天有录入</small></div><div class="cal-grid">' + cells + '</div>' +
+      '<div class="cal-legend">少 <i class="cal-cell l1"></i><i class="cal-cell l2"></i><i class="cal-cell l3"></i> 多</div></div>';
+  }
+
   function renderStats() {
     const qs = state.questions;
     const total = qs.length;
@@ -1812,6 +1915,9 @@
       '<div class="chart-card"><div class="chart-title">' + icon('pie') + '错因分布<small>看看主要失分点</small></div>' +
       '<div class="donut-wrap">' + donut + legend + '</div></div>' +
       '<div class="chart-card"><div class="chart-title">' + icon('trend') + '近 8 周新增趋势<small>按录入时间统计</small></div>' + trend + '</div>' +
+      masteryTrendHtml(qs, weeks, maxW) +
+      subjectCauseHeatHtml(qs) +
+      activityCalendarHtml(qs) +
       '<div class="about-card" style="margin-top:4px">' + icon('shield') +
       '<p class="mt8">全部统计在本机完成，不上传任何数据。</p></div>';
   }
@@ -2142,105 +2248,79 @@
   async function openHtmlViewer(id) {
     const rec = await DB.getPdf(id);
     if (!rec) { toast('资料不存在', 'err'); return; }
+    // D1 security: allow-same-origin is REMOVED. An imported handbook must not
+    // be able to reach the parent page / IndexedDB. Reading progress now flows
+    // through a postMessage bridge injected into the sandboxed document (the
+    // bridge reads its OWN scroller/hash and reports outward; the host sends
+    // restore commands inward) — same behaviour, no same-origin escape hatch.
     const ov = overlay(
       '<div class="sheet-full html-viewer">' +
       '<div class="sheet-head"><button class="icon-btn" id="hvClose" aria-label="关闭">' + icon('arrow-left') + '</button>' +
       '<h2>' + esc(rec.name) + '</h2><span class="grow"></span></div>' +
-      '<iframe id="hvFrame" class="html-frame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>' +
+      '<iframe id="hvFrame" class="html-frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>' +
       '</div>', 'bottom', true);
     const fr = $('#hvFrame', ov);
-    // Reading position for HTML = { hash, pct }. Many real-world "handbook"
-    // pages are hash-routed SPA apps: on load they show #/home (nothing to
-    // scroll) and the actual reading content only appears after navigating to
-    // a chapter (#/chapter/...). Tracking only a scroll % therefore always
-    // restored 0. v1.1.5: save/restore BOTH the location.hash and the scroll
-    // percentage — restore the hash first (which triggers the SPA to build the
-    // chapter), then scroll once the content has height.
     const prog = (rec.progress && typeof rec.progress === 'object') ? rec.progress : {};
     const savedPct = typeof prog.pct === 'number' ? prog.pct : 0;
     const savedHash = typeof prog.hash === 'string' ? prog.hash : '';
-    let latestPct = savedPct, latestHash = savedHash, saveT, restoreTimer, pollTimer;
+    let latestPct = savedPct, latestHash = savedHash, saveT;
+
     const flushHtmlProgress = () => {
       if (!rec.progress || typeof rec.progress !== 'object') rec.progress = {};
       rec.progress.pct = latestPct;
       rec.progress.hash = latestHash;
       DB.putPdf(rec);
     };
-    // The iframe uses allow-same-origin, so we can read its DOM directly from
-    // the parent. Doing detection/restore/tracking here (instead of an injected
-    // postMessage bridge) is far more reliable for hash-routed SPA handbooks,
-    // whose real scroller is often an inner overflow container, not the window.
-    fr.srcdoc = String(rec.data || '');
-    const maxScroll = (sc, w, d) => sc === w
-      ? Math.max(0, Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0) - w.innerHeight)
-      : Math.max(0, sc.scrollHeight - sc.clientHeight);
-    const findScroller = (w, d) => {
-      let best = null, bestAmt = 24;
-      const all = d.querySelectorAll('*');
-      for (let i = 0; i < all.length; i++) {
-        const el = all[i];
-        let oy = '';
-        try { oy = (w.getComputedStyle(el).overflowY) || ''; } catch (e) { continue; }
-        if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') continue;
-        const amt = el.scrollHeight - el.clientHeight;
-        if (amt > bestAmt && el.clientHeight > 80) { best = el; bestAmt = amt; }
-      }
-      if (best) return best;
-      if (Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0) - w.innerHeight > 24) return w;
-      return null;
-    };
-    const posOf = (sc, w, d) => sc === w ? (w.pageYOffset || d.documentElement.scrollTop || 0) : sc.scrollTop;
-    const setPos = (sc, w, p) => { try { if (sc === w) w.scrollTo(0, p); else sc.scrollTop = p; } catch (e) {} };
 
-    // Restore: wait for the document to have scrollable height, jump to the
-    // saved hash chapter first (hash-routed SPA handbooks), then scroll to the
-    // saved percentage. v1.1.5 fix: a restore is needed whenever there IS a
-    // saved position — either a hash OR a non-trivial scroll percentage. The
-    // old `restoreDone = !savedHash` skipped ALL plain long documents (no hash
-    // routes), which is why a swapped-in normal HTML never remembered its spot.
-    let restoreTries = 0, restoreDone = !(savedHash || savedPct > 0.001);
-    const tryRestore = () => {
-      if (restoreDone || restoreTries > 90) return;
-      restoreTries++;
-      let w, d;
-      try { w = fr.contentWindow; d = fr.contentDocument; } catch (e) { setTimeout(tryRestore, 120); return; }
-      if (!w || !d) { setTimeout(tryRestore, 120); return; }
-      // Hash-routed SPA: navigate to the saved chapter so its body is rendered.
-      if (savedHash && w.location.hash !== savedHash) {
-        try { w.location.hash = savedHash; } catch (e) {}
-        setTimeout(tryRestore, 140); return;
-      }
-      const sc = findScroller(w, d);
-      if (sc && maxScroll(sc, w, d) > 24) {
-        setPos(sc, w, savedPct * maxScroll(sc, w, d));
-        restoreDone = true;
-      } else {
-        setTimeout(tryRestore, 120);
-      }
-    };
-    restoreTimer = setInterval(tryRestore, 140);
+    // Bridge source (runs INSIDE the opaque-origin iframe). It walks its own
+    // document for the real scroller, restores hash+scroll on command, and
+    // reports {hash,pct} back to the host. No parent DOM access whatsoever.
+    const bridge = '<script>(function(){' +
+      'var H=window.parent;' +
+      'function maxS(sc){return sc===window?Math.max(0,Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0)-window.innerHeight):Math.max(0,sc.scrollHeight-sc.clientHeight)}' +
+      'function find(){var best=null,bamt=24,all=document.querySelectorAll("*");for(var i=0;i<all.length;i++){var el=all[i],oy="";try{oy=(getComputedStyle(el).overflowY)||""}catch(e){continue}if(oy!=="auto"&&oy!=="scroll"&&oy!=="overlay")continue;var a=el.scrollHeight-el.clientHeight;if(a>bamt&&el.clientHeight>80){best=el;bamt=a}}if(best)return best;if(maxS(window)>24)return window;return null}' +
+      'function pos(sc){return sc===window?(window.pageYOffset||document.documentElement.scrollTop||0):(sc.scrollTop||0)}' +
+      'function setP(sc,p){try{if(sc===window)window.scrollTo(0,p);else sc.scrollTop=p}catch(e){}}' +
+      'function report(){var sc=find(),m=sc?maxS(sc):0,pct=m>0?Math.min(1,Math.max(0,pos(sc)/m)):0;try{H.postMessage({__ctbHtmlScroll:1,pct:pct,hash:location.hash||""},"*")}catch(e){}}' +
+      'function restore(hash,pct){var tries=0;function go(){if(hash&&location.hash!==hash){try{location.hash=hash}catch(e){}setTimeout(go,140);return}var sc=find();if(sc&&maxS(sc)>24){setP(sc,pct*maxS(sc));report()}else if(tries++<80)setTimeout(go,120)}go()}' +
+      'window.addEventListener("message",function(e){var d=e.data;if(d&&d.__ctbRestore===1)restore(d.hash||"",typeof d.pct==="number"?d.pct:0)},false);' +
+      'window.addEventListener("scroll",report,true);' +
+      'setInterval(report,600);' +
+      '})();<\/script>';
 
-    // Track: poll the iframe DOM, persist {pct, hash} when either changes.
-    // Skip until restore finished, so a transient #/home frame can't overwrite
-    // the saved percentage with 0.
-    const track = () => {
-      if (!restoreDone) return;
-      let w, d;
-      try { w = fr.contentWindow; d = fr.contentDocument; } catch (e) { return; }
-      if (!w || !d) return;
-      const hash = w.location.hash || '';
-      const sc = findScroller(w, d);
-      const m = sc ? maxScroll(sc, w, d) : 0;
-      const pct = (sc && m > 0) ? Math.min(1, Math.max(0, posOf(sc, w, d) / m)) : 0;
-      if (hash !== latestHash || Math.abs(pct - latestPct) > 0.004) {
-        latestHash = hash; latestPct = pct;
+    let html = String(rec.data || '');
+    const lower = html.toLowerCase();
+    const bs = lower.lastIndexOf('</body>');
+    html = bs >= 0 ? html.slice(0, bs) + bridge + html.slice(bs) : html + bridge;
+    fr.srcdoc = html;
+
+    const onMsg = e => {
+      if (e.source !== fr.contentWindow) return;
+      const d = e.data;
+      if (!d || d.__ctbHtmlScroll !== 1) return;
+      const np = Math.min(1, Math.max(0, Number(d.pct) || 0));
+      const nh = String(d.hash || '');
+      if (nh !== latestHash || Math.abs(np - latestPct) > 0.004) {
+        latestHash = nh; latestPct = np;
         clearTimeout(saveT); saveT = setTimeout(flushHtmlProgress, 300);
       }
     };
-    pollTimer = setInterval(track, 600);
+    window.addEventListener('message', onMsg);
+
+    // Send the restore command once the sandboxed doc has booted, and retry a
+    // few times in case its own scripts build content slightly later.
+    let tries = 0;
+    const sendRestore = () => {
+      if (tries++ > 12) return;
+      try { fr.contentWindow.postMessage({ __ctbRestore: 1, hash: savedHash, pct: savedPct }, '*'); } catch (e) { }
+    };
+    fr.addEventListener('load', sendRestore);
+    const restoreTimer = setInterval(sendRestore, 400);
+    setTimeout(() => clearInterval(restoreTimer), 6000);
 
     const closeHtml = () => {
-      clearInterval(restoreTimer); clearInterval(pollTimer);
+      window.removeEventListener('message', onMsg);
+      clearInterval(restoreTimer);
       clearTimeout(saveT);
       flushHtmlProgress();
       closeOverlay(ov);
@@ -2261,6 +2341,8 @@
       '<div class="sheet-full pdf-viewer">' +
       '<div class="sheet-head"><button class="icon-btn" id="pvClose" aria-label="关闭">' + icon('arrow-left') + '</button>' +
       '<h2>' + esc((rec && rec.name) || 'PDF 查看') + '</h2>' +
+      '<button class="icon-btn" id="pvOutline" aria-label="目录" title="目录">' + icon('layers') + '</button>' +
+      '<button class="icon-btn" id="pvSearch" aria-label="搜索" title="搜索">' + icon('search') + '</button>' +
       '<button class="pdf-page-jump" id="pvPage" aria-label="跳转页面">1 / ' + total + '</button></div>' +
       '<div class="pdf-scroll" id="pvScroll"><div class="pdf-pages" id="pvPages"></div></div>' +
       '<div class="pdf-controls">' +
@@ -2457,7 +2539,97 @@
     };
     window.addEventListener('resize', onResize);
 
+    // P4: PDF outline + in-document text search (PDF.js APIs exposed in pdf.js).
+    $('#pvOutline', ov).onclick = async () => {
+      if (typeof Pdf.getOutline !== 'function') { toast('目录功能不可用', 'err'); return; }
+      const items = await Pdf.getOutline(doc);
+      if (!items.length) { toast('这份 PDF 没有目录', 'info'); return; }
+      const list = '<div class="glist" style="padding:10px 14px">' + items.map((it, i) =>
+        '<div class="grow" data-act="pdf-outline-go" data-page="' + it.page + '" style="cursor:pointer">' +
+        '<div class="grow-main"><div class="grow-title">' + esc(it.title) + '</div><div class="grow-sub">第 ' + it.page + ' 页</div></div></div>').join('') + '</div>';
+      const ov2 = overlay('<div class="sheet-full"><div class="sheet-head"><button class="icon-btn" data-x="cancel">' + icon('arrow-left') + '</button><h2>目录</h2></div><div class="scroll">' + list + '</div></div>', 'bottom', true);
+      ov2.addEventListener('click', e => {
+        const go = e.target.closest('[data-act="pdf-outline-go"]');
+        if (go) { const pg = +go.getAttribute('data-page'); if (pg >= 1 && pg <= total) gotoPage(pg); closeOverlay(ov2); }
+      });
+    };
+    $('#pvSearch', ov).onclick = async () => {
+      const q = await promptDialog({ title: '搜索 PDF', desc: '在当前 PDF 中查找文字（逐页）', placeholder: '输入关键词' });
+      if (!q || typeof Pdf.searchPage !== 'function') return;
+      toast('正在搜索…', 'info');
+      const hits = [];
+      for (let pg = 1; pg <= total && hits.length < 40; pg++) {
+        const r = await Pdf.searchPage(doc, pg, q);
+        if (r && r.hits && r.hits.length) hits.push({ page: pg, snippet: r.hits[0].snippet });
+      }
+      if (!hits.length) { toast('没有找到「' + q + '」', 'info'); return; }
+      const list = '<div class="glist" style="padding:10px 14px">' + hits.map(h =>
+        '<div class="grow" data-act="pdf-search-go" data-page="' + h.page + '" style="cursor:pointer"><div class="grow-main">' +
+        '<div class="grow-title">第 ' + h.page + ' 页</div><div class="grow-sub">' + esc(h.snippet) + '</div></div></div>').join('') + '</div>';
+      const ov2 = overlay('<div class="sheet-full"><div class="sheet-head"><button class="icon-btn" data-x="cancel">' + icon('arrow-left') + '</button><h2>搜索「' + esc(q) + '」</h2></div><div class="scroll">' + list + '</div></div>', 'bottom', true);
+      ov2.addEventListener('click', e => {
+        const go = e.target.closest('[data-act="pdf-search-go"]');
+        if (go) { const pg = +go.getAttribute('data-page'); if (pg >= 1 && pg <= total) gotoPage(pg); closeOverlay(ov2); }
+      });
+    };
+
     ov.dataset.pdfViewer = '1';
+  }
+
+  /* ---------------------------------------------------------
+     QUIZ MODE (P1) — hidden-answer practice, auto-updates mastery
+     --------------------------------------------------------- */
+  function openQuiz() {
+    const Q = window.Quiz;
+    if (!Q || typeof Q.open !== 'function') { toast('刷题模块未加载', 'err'); return; }
+    if (!state.questions.length) { toast('还没有错题，先录入几道吧', 'err'); return; }
+    Q.open({ questions: state.questions.slice(), onResult: () => { refresh().then(() => { renderHome(); if (state.view === 'stats') renderStats(); }); } });
+  }
+
+  /* ---------------------------------------------------------
+     RECYCLE BIN (P2) — 7-day recovery for deleted questions
+     --------------------------------------------------------- */
+  async function openTrash() {
+    if (typeof DB.listTrash !== 'function') { toast('当前版本不支持回收站', 'err'); return; }
+    const items = await DB.listTrash();
+    const ov = overlay(
+      '<div class="sheet-full trash-sheet">' +
+      '<div class="sheet-head"><button class="icon-btn" data-x="cancel" aria-label="关闭">' + icon('arrow-left') + '</button>' +
+      '<h2>回收站</h2><span class="grow"></span>' +
+      (items.length ? '<button class="btn btn-ghost btn-sm" data-act="trash-purge" style="color:var(--bad)">清空过期</button>' : '') + '</div>' +
+      '<div class="scroll">' + (items.length
+        ? '<div class="glist" style="padding:10px 14px">' + items.map(it => {
+            const days = Math.max(0, 7 - Math.floor((Date.now() - (it.deletedAt || 0)) / 86400000));
+            const q = it.question || {};
+            return '<div class="grow"><div class="grow-ic">' + icon('trash') + '</div>' +
+              '<div class="grow-main"><div class="grow-title">' + esc((q.stem || '图片题目').slice(0, 40)) + '</div>' +
+              '<div class="grow-sub">' + (q.subject || '未分类') + ' · 还剩 ' + days + ' 天</div></div>' +
+              '<button class="btn btn-ghost btn-sm" data-act="trash-restore" data-id="' + it.id + '">恢复</button>' +
+              '<button class="mini-act danger" data-act="trash-del" data-id="' + it.id + '" title="彻底删除">' + icon('x') + '</button></div>';
+          }).join('') + '</div>'
+        : '<div class="empty"><div class="empty-orb">' + icon('trash') + '</div><h3>回收站是空的</h3>' +
+          '<p>删除的错题会在这里保留 7 天，可随时恢复。</p></div>') +
+      '</div></div>', 'bottom', true);
+    ov.dataset.trashView = '1';
+    ov.addEventListener('click', async e => {
+      const restore = e.target.closest('[data-act="trash-restore"]');
+      const del = e.target.closest('[data-act="trash-del"]');
+      const purge = e.target.closest('[data-act="trash-purge"]');
+      if (restore) {
+        await DB.restoreFromTrash(restore.getAttribute('data-id'));
+        toast('已恢复到错题本'); closeOverlay(ov); await refresh(); renderHome(); return;
+      }
+      if (del) {
+        const ok = await confirmDialog({ title: '彻底删除？', desc: '此操作不可恢复。', confirmText: '删除', danger: true });
+        if (!ok) return;
+        await DB.deleteTrashForever(del.getAttribute('data-id'));
+        toast('已彻底删除'); closeOverlay(ov); openTrash(); return;
+      }
+      if (purge) {
+        await DB.purgeExpiredTrash(0);
+        toast('已清理过期项'); closeOverlay(ov); openTrash(); return;
+      }
+    });
   }
 
   /* ---------------------------------------------------------
@@ -2466,6 +2638,20 @@
   async function renderSettings() {
     const cfg = state.config;
     const size = await DB.estimateSize();
+    // C2: navigator.storage.estimate() gives the real quota/usage without a
+    // full getAll of every image (the old UTF-16 approximation was inaccurate).
+    let quota = null;
+    try { if (typeof DB.quotaInfo === 'function') quota = await DB.quotaInfo(); } catch (e) { }
+    const quotaText = quota && quota.quota
+      ? formatBytes(quota.usage) + ' / ' + formatBytes(quota.quota) + '（' + Math.round(quota.usage / quota.quota * 100) + '%）'
+      : (quota && quota.usage ? formatBytes(quota.usage) : '未知');
+    const hist = Array.isArray(cfg.backupHistory) ? cfg.backupHistory.slice(-5).reverse() : [];
+    const histHtml = hist.length
+      ? hist.map(h => '<div class="grow"><div class="grow-ic">' + icon('clock') + '</div><div class="grow-main">' +
+          '<div class="grow-title">' + esc(fmtDateTime(h.at)) + '</div>' +
+          '<div class="grow-sub">' + (h.questions || 0) + ' 题 · ' + (h.images || 0) + ' 图' + (h.docs ? ' · ' + h.docs + ' 资料' : '') +
+          (h.kind === 'auto' ? ' · 自动备份' : '') + '</div></div></div>').join('')
+      : '<div class="grow-sub" style="padding:8px 0">还没有备份记录</div>';
     const row = (ic, title, sub, right) =>
       '<div class="grow"><div class="grow-ic">' + icon(ic) + '</div>' +
       '<div class="grow-main"><div class="grow-title">' + esc(title) + '</div>' +
@@ -2503,18 +2689,24 @@
       '<div class="group"><div class="group-head">' + icon('db') + '<h3>数据备份</h3></div>' +
       '<div class="glist">' +
       row('download', '导出备份包', '错题 + 图片打包为 ZIP，可拷到电脑留存', '<button class="btn btn-ghost btn-sm" data-act="export">导出</button>') +
+      row('shield', '完整备份（含资料）', cfg.fullBackup ? '备份同时打包 PDF / HTML / TXT 资料（可能较大）' : '默认只备份错题与图片，资料不进包', '<div class="switch ' + (cfg.fullBackup ? 'on' : '') + '" data-act="toggle-fullbackup"><i></i></div>') +
       row('upload', '导入恢复', '选择备份包，覆盖或合并（重复以较新修改时间为准）', '<button class="btn btn-ghost btn-sm" data-act="import">导入</button>') +
       row('broom', '清理残留图片', '只删除未被任何错题引用的图片', '<button class="btn btn-ghost btn-sm" data-act="cleanup">清理</button>') +
       row('db', '数据占用空间', size.questions + ' 道错题 · ' + size.images + ' 张图片' + (size.pdfs ? ' · ' + size.pdfs + ' 份资料' : ''), '<span class="grow-val">' + formatBytes(size.bytes) + '</span>') +
+      row('shield', '存储保护 / 实际占用', (state.persisted ? '已持久化' : '未持久化（系统压力下可能被清除）') + ' · ' + quotaText, '<span class="grow-val">' + (state.persisted ? '● 受保护' : '○ 普通') + '</span>') +
+      row('trash', '回收站', '删除的错题保留 7 天，可随时恢复', '<button class="btn btn-ghost btn-sm" data-act="open-trash">打开</button>') +
       row('layers', '备份目录（原生端）', cfg.backupDir || 'Download/Noteee备份', '<button class="btn btn-ghost btn-sm" data-act="choose-dir">修改</button>') +
       row('trash', '导入后删除 ZIP', '批量导入成功后自动删除来源 ZIP 文件（仅原生端生效）', '<div class="switch ' + (cfg.autoDeleteZip ? 'on' : '') + '" data-act="toggle-autodel"><i></i></div>') +
       '</div>' +
       '<input type="file" id="importFile" accept=".zip,application/zip" hidden>' +
       '</div>' +
 
+      '<div class="group"><div class="group-head">' + icon('clock') + '<h3>备份历史</h3></div>' +
+      '<div class="glist">' + histHtml + '</div></div>' +
+
       '<div class="group"><div class="group-head">' + icon('info') + '<h3>关于</h3></div>' +
       '<div class="about-card"><div class="about-logo">' + icon('book') + '</div>' +
-      '<h3>Noteee</h3><p>个人自用版 · v1.1.5 · chen5<br>' +
+      '<h3>Noteee</h3><p>个人自用版 · v' + ((window.APP_VERSION && window.APP_VERSION.version) || '1.1.6') + ' · chen5<br>' +
       '不联网、不登录、不收集任何信息<br>所有数据只保存在本机与你选择的备份目录</p></div></div>' +
 
       '<div class="group"><div class="group-head">' + icon('settings') + '<h3>其他</h3></div>' +
@@ -2528,11 +2720,12 @@
     try {
       toast('正在打包备份…', 'info');
       const [qs, imgs, cfg] = await Promise.all([DB.getAllQuestions(), DB.getAllImages(), DB.getConfig()]);
+      const docs = (cfg.fullBackup && typeof DB.getAllPdfs === 'function') ? await DB.getAllPdfs() : [];
       const now = Date.now();
       const manifest = {
         app: 'Noteee', format: 'cuotiben-backup', schema: DB.SCHEMA, dbVersion: 1,
         exportedAt: now, exportedAtText: fmtDateTime(now),
-        counts: { questions: qs.length, images: imgs.length }
+        counts: { questions: qs.length, images: imgs.length, docs: docs.length }
       };
       const data = { schema: DB.SCHEMA, questions: qs, config: cfg };
       const files = [
@@ -2545,6 +2738,19 @@
         files.push({ name: 'images/' + im.id + '.' + f.ext, data: f.bytes });
         if (t) files.push({ name: 'images/' + im.id + '_thumb.' + t.ext, data: t.bytes });
       });
+      // A4: full backup includes PDF / HTML / TXT documents so a device swap
+      // does not lose the handbooks that reading-memory depends on.
+      docs.forEach(dc => {
+        const ext = dc.kind === 'txt' ? 'txt' : dc.kind === 'html' ? 'html' : 'pdf';
+        let bytes;
+        if (dc.kind === 'pdf' && dc.data instanceof ArrayBuffer) bytes = new Uint8Array(dc.data);
+        else bytes = new TextEncoder().encode(String(dc.data || ''));
+        files.push({ name: 'docs/' + dc.id + '.' + ext, data: bytes });
+      });
+      if (docs.length) files.push({ name: 'docs.json', data: Zip.jsonBytes(docs.map(dc => ({
+        id: dc.id, name: dc.name, kind: dc.kind, size: dc.size, createdAt: dc.createdAt, progress: dc.progress || null,
+        chapters: dc.chapters || null
+      }))) });
       const blob = Zip.createZip(files);
       const d = new Date(now);
       const name = 'Noteee备份_' + d.getFullYear() + U.pad(d.getMonth() + 1) + U.pad(d.getDate()) + '_' + U.pad(d.getHours()) + U.pad(d.getMinutes()) + '.zip';
@@ -2559,13 +2765,22 @@
           return;
         } catch (e) { /* fall back to download */ }
       }
+      // Record backup metadata for the reminder + history view.
+      try {
+        cfg.lastBackupAt = now; cfg.lastBackupCount = qs.length;
+        cfg.backupHistory = (Array.isArray(cfg.backupHistory) ? cfg.backupHistory : []).concat([
+          { at: now, questions: qs.length, images: imgs.length, docs: docs.length, kind: 'manual' }
+        ]).slice(-30);
+        await DB.putConfig(cfg); state.config = cfg;
+      } catch (e) { }
       U.downloadBlob(blob, name);
-      toast('备份已导出：' + qs.length + ' 道错题 / ' + imgs.length + ' 张图片');
+      toast('备份已导出：' + qs.length + ' 道错题 / ' + imgs.length + ' 张图片' + (docs.length ? ' / ' + docs.length + ' 资料' : ''));
     } catch (e) {
       console.error(e); toast('导出失败：' + e.message, 'err');
     }
   }
 
+  function now0(dc) { return (dc && dc.createdAt) || Date.now(); }
   async function importBackup(file) {
     try {
       const entries = await Zip.readZip(await file.arrayBuffer());
@@ -2589,6 +2804,29 @@
         const url = U.bytesToDataURL(e.data, mime);
         if (isThumb) thumbs.set(id, url); else images.push({ id, full: url });
       }
+      // Full-backup restore: rebuild PDF / HTML / TXT docs + their reading progress.
+      let restoredDocs = 0;
+      try {
+        const dmEntry = byName.get('docs.json');
+        if (dmEntry && typeof DB.putPdf === 'function') {
+          const dmeta = dmEntry.json();
+          const dfile = new Map(entries.filter(e => /^docs\//.test(e.name)).map(e => [e.name, e]));
+          if (Array.isArray(dmeta)) {
+            for (const dc of dmeta) {
+              const ext = dc.kind === 'txt' ? 'txt' : dc.kind === 'html' ? 'html' : 'pdf';
+              const f = dfile.get('docs/' + dc.id + '.' + ext);
+              if (!f) continue;
+              let data = f.data;
+              if (dc.kind !== 'pdf') data = new TextDecoder('utf-8').decode(f.data);
+              else data = f.data.buffer.slice(f.data.byteOffset, f.data.byteOffset + f.data.byteLength);
+              await DB.putPdf({ id: dc.id, name: dc.name, kind: dc.kind, data: data,
+                size: dc.size || f.data.byteLength, createdAt: dc.createdAt || now0(dc), progress: dc.progress || null,
+                chapters: dc.chapters || null });
+              restoredDocs++;
+            }
+          }
+        }
+      } catch (e) { console.warn('restore docs failed', e); }
       images.forEach(im => {
         im.thumb = thumbs.get(im.id) || im.full;
         im.createdAt = manifest.exportedAt || Date.now();
@@ -2614,7 +2852,7 @@
       applyTheme(state.config.theme);
       await refresh();
       renderHome(); renderSettings();
-      toast('导入完成，共 ' + state.questions.length + ' 道错题');
+      toast('导入完成，共 ' + state.questions.length + ' 道错题' + (restoredDocs ? ' / ' + restoredDocs + ' 资料' : ''));
     } catch (e) {
       console.error(e); toast('导入失败：' + e.message, 'err');
     }
@@ -3053,10 +3291,12 @@
           { icon: 'layers', title: '批量导入错题', desc: '从 JSON / ZIP 文件一次导入多道（可含图片）', value: 'batch' },
           { icon: 'pdf', title: '导入 PDF', desc: '导入 PDF 学习资料，连续滚动阅读', value: 'pdf' },
           { icon: 'note', title: '导入 HTML', desc: '打开本地 HTML 文档，离线阅读并记忆位置', value: 'html' },
-          { icon: 'book', title: '导入 TXT 小说', desc: '导入 txt，番茄小说式离线阅读', value: 'txt' }
+          { icon: 'book', title: '导入 TXT 小说', desc: '导入 txt，番茄小说式离线阅读', value: 'txt' },
+          { icon: 'check-circle', title: '刷题模式', desc: '隐藏答案逐题重做，自动更新掌握状态', value: 'quiz' }
         ]
       });
-      if (choice === 'batch') openBatchImport();
+      if (choice === 'quiz') openQuiz();
+      else if (choice === 'batch') openBatchImport();
       else if (choice === 'pdf') doPromptPdfImport();
       else if (choice === 'html') doPromptHtmlImport();
       else if (choice === 'txt') doPromptTxtImport();
@@ -3240,6 +3480,18 @@
           toast('字段显示已更新', 'info'); break;
         }
         case 'export': exportBackup(); break;
+        case 'export-memory': exportMemoryJson(); break;
+        case 'dismiss-memory': { const b = $('#memoryBanner'); if (b) b.remove(); break; }
+        case 'dismiss-backup-tip': {
+          const b = $('#backupTip'); if (b) b.remove();
+          state.config.backupTipHiddenAt = Date.now(); DB.putConfig(state.config); break;
+        }
+        case 'toggle-fullbackup':
+          state.config.fullBackup = !state.config.fullBackup;
+          await DB.putConfig(state.config); renderSettings();
+          toast('完整备份已' + (state.config.fullBackup ? '开启（含资料）' : '关闭'), 'info'); break;
+        case 'open-trash': openTrash(); break;
+        case 'quiz': openQuiz(); break;
         case 'import': $('#importFile').click(); break;
         case 'batch': openBatchImport(); break;
         case 'cleanup': cleanupImages(); break;

@@ -1,7 +1,7 @@
 /* Offline service worker — network-first so updates are picked up immediately,
    with a cache fallback so the app still works fully offline.
    All data stays on device; there are no network features. */
-const CACHE = 'cuotiben-v32';
+const CACHE = 'cuotiben-v33';
 const OCR_ASSETS = [
   'ocr/tesseract.min.js', 'ocr/worker.min.js',
   'ocr/tesseract-core-simd-lstm.wasm.js', 'ocr/tesseract-core-simd-lstm.wasm',
@@ -39,7 +39,7 @@ const PDF_ASSETS = [
 ];
 const ASSETS = [
   './', 'index.html', 'manifest.json', 'css/glass.css', 'css/novel.css',
-  'js/utils.js', 'js/zip.js', 'js/db.js', 'js/vision.js', 'js/batch.js', 'js/pdf.js', 'js/novel.js', 'js/app.js',
+  'js/version.js', 'js/utils.js', 'js/zip.js', 'js/db.js', 'js/vision.js', 'js/batch.js', 'js/pdf.js', 'js/novel.js', 'js/quiz.js', 'js/app.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable.png',
   ...OCR_ASSETS, ...KATEX_ASSETS, ...PDF_ASSETS
 ];

@@ -6,7 +6,7 @@
   'use strict';
 
   const DB_NAME = 'cuotiben';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   const SCHEMA = 1;
 
   const DEFAULT_CONFIG = {
@@ -47,6 +47,7 @@
         if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('config')) db.createObjectStore('config', { keyPath: 'key' });
         if (!db.objectStoreNames.contains('pdfs')) db.createObjectStore('pdfs', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('trash')) db.createObjectStore('trash', { keyPath: 'id' });
       };
       req.onsuccess = () => { _db = req.result; resolve(_db); };
       req.onerror = () => reject(req.error || new Error('打开数据库失败'));
@@ -54,19 +55,26 @@
     });
   }
 
+  function isQuotaError(err) {
+    return !!err && (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014);
+  }
+  function quotaError(err) {
+    if (isQuotaError(err)) return new Error('存储空间不足，请在设置中清理资料或导出备份后重试');
+    return err;
+  }
   function reqDone(r) {
-    return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(quotaError(r.error)); });
   }
   function txDone(tx) {
     return new Promise((res, rej) => {
       tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error || new Error('事务被中止'));
+      tx.onerror = () => rej(quotaError(tx.error));
+      tx.onabort = () => rej(quotaError(tx.error || new Error('事务被中止')));
     });
   }
 
   function useMemory() {
-    _memory = { questions: new Map(), images: new Map(), pdfs: new Map(), config: null };
+    _memory = { questions: new Map(), images: new Map(), pdfs: new Map(), trash: new Map(), config: null };
     return Promise.resolve();
   }
 
@@ -140,6 +148,14 @@
   async function getAllImages() {
     if (_memory) return Array.from(_memory.images.values());
     return await reqDone(_db.transaction('images', 'readonly').objectStore('images').getAll()) || [];
+  }
+  // C1: lightweight list load — only { id, thumb } for the card list. The full
+  // dataURL is fetched on demand via getImage(id) when a detail is opened.
+  async function getAllImageThumbs() {
+    if (_memory) return Array.from(_memory.images.values()).map(im => ({ id: im.id, thumb: im.thumb || im.full }));
+    const r = _db.transaction('images', 'readonly').objectStore('images').getAll();
+    const all = await reqDone(r) || [];
+    return all.map(im => ({ id: im.id, thumb: im.thumb || im.full }));
   }
   async function putImage(img) {
     if (_memory) { _memory.images.set(img.id, img); return img; }
@@ -275,31 +291,77 @@
     await txDone(tx);
   }
 
-  /* Merge: for duplicate ids keep the record with the newer updatedAt. */
+  /* Merge: for duplicate ids keep the record with the newer updatedAt.
+     All reads and writes happen in ONE readwrite transaction so a merge is atomic. */
   async function mergeAll(questions, images, config) {
-    const existing = await getAllQuestions();
-    const map = new Map(existing.map(q => [q.id, q]));
-    for (const q of questions) {
-      const old = map.get(q.id);
-      if (!old || (q.updatedAt || 0) >= (old.updatedAt || 0)) map.set(q.id, q);
+    questions = questions || [];
+    images = images || [];
+    if (_memory) {
+      const existing = Array.from(_memory.questions.values());
+      const map = new Map(existing.map(q => [q.id, q]));
+      for (const q of questions) {
+        const old = map.get(q.id);
+        if (!old || (q.updatedAt || 0) >= (old.updatedAt || 0)) map.set(q.id, q);
+      }
+      const merged = Array.from(map.values());
+      const existingImgs = Array.from(_memory.images.values());
+      const imgMap = new Map(existingImgs.map(i => [i.id, i]));
+      for (const i of images) if (!imgMap.has(i.id)) imgMap.set(i.id, i);
+      const mergedImgs = Array.from(imgMap.values());
+      let mergedCfg = null;
+      if (config) {
+        const c = Object.assign({}, DEFAULT_CONFIG, _memory.config || {});
+        ['subjects', 'qtypes', 'causes', 'tags'].forEach(k => {
+          if (Array.isArray(config[k])) c[k] = Array.from(new Set((c[k] || []).concat(config[k])));
+        });
+        mergedCfg = c;
+      }
+      _memory.questions = new Map(merged.map(q => [q.id, q]));
+      _memory.images = new Map(mergedImgs.map(i => [i.id, i]));
+      if (mergedCfg) _memory.config = mergedCfg;
+      return { questions: merged.length, images: mergedImgs.length };
     }
-    const merged = Array.from(map.values());
-    const existingImgs = await getAllImages();
-    const imgMap = new Map(existingImgs.map(i => [i.id, i]));
-    for (const i of images) if (!imgMap.has(i.id)) imgMap.set(i.id, i);
-    const mergedImgs = Array.from(imgMap.values());
-
-    let mergedCfg = null;
-    if (config) {
-      const cur = await getConfig();
-      const c = Object.assign({}, cur);
-      ['subjects', 'qtypes', 'causes', 'tags'].forEach(k => {
-        if (Array.isArray(config[k])) c[k] = Array.from(new Set((c[k] || []).concat(config[k])));
-      });
-      mergedCfg = c;
-    }
-    await replaceAll(merged, mergedImgs, mergedCfg);
-    return { questions: merged.length, images: mergedImgs.length };
+    return new Promise((resolve, reject) => {
+      const tx = _db.transaction(['questions', 'images', 'config'], 'readwrite');
+      const qs = tx.objectStore('questions'), is = tx.objectStore('images'), cs = tx.objectStore('config');
+      const qReq = qs.getAll();
+      qReq.onsuccess = () => {
+        const existing = qReq.result || [];
+        const iReq = is.getAll();
+        iReq.onsuccess = () => {
+          const existingImgs = iReq.result || [];
+          const cReq = cs.get('main');
+          cReq.onsuccess = () => {
+            const cur = cReq.result ? cReq.result.value : null;
+            const map = new Map(existing.map(q => [q.id, q]));
+            for (const q of questions) {
+              const old = map.get(q.id);
+              if (!old || (q.updatedAt || 0) >= (old.updatedAt || 0)) map.set(q.id, q);
+            }
+            const merged = Array.from(map.values());
+            const imgMap = new Map(existingImgs.map(i => [i.id, i]));
+            for (const i of images) if (!imgMap.has(i.id)) imgMap.set(i.id, i);
+            const mergedImgs = Array.from(imgMap.values());
+            let mergedCfg = null;
+            if (config) {
+              const c = Object.assign({}, DEFAULT_CONFIG, cur || {});
+              ['subjects', 'qtypes', 'causes', 'tags'].forEach(k => {
+                if (Array.isArray(config[k])) c[k] = Array.from(new Set((c[k] || []).concat(config[k])));
+              });
+              mergedCfg = c;
+            }
+            qs.clear(); is.clear();
+            merged.forEach(q => qs.put(q));
+            mergedImgs.forEach(i => is.put(i));
+            if (mergedCfg) cs.put({ key: 'main', value: mergedCfg });
+            txDone(tx).then(() => resolve({ questions: merged.length, images: mergedImgs.length }), reject);
+          };
+          cReq.onerror = () => reject(quotaError(cReq.error));
+        };
+        iReq.onerror = () => reject(quotaError(iReq.error));
+      };
+      qReq.onerror = () => reject(quotaError(qReq.error));
+    });
   }
 
   async function estimateSize() {
@@ -313,6 +375,28 @@
     });
     pdfs.forEach(p => { bytes += (p.data && p.data.byteLength) || count(p.data) || 0; });
     return { bytes, questions: qs.length, images: imgs.length, pdfs: pdfs.length };
+  }
+
+  /* Persistent storage: ask the browser to keep data under eviction pressure. */
+  async function requestPersist() {
+    if (navigator.storage && navigator.storage.persist) return await navigator.storage.persist();
+    return false;
+  }
+  async function persisted() {
+    if (navigator.storage && navigator.storage.persisted) return await navigator.storage.persisted();
+    return false;
+  }
+  /* Real usage/quota from the Storage API (estimateSize() stays for count fields). */
+  async function quotaInfo() {
+    if (navigator.storage && navigator.storage.estimate) {
+      try {
+        const { usage, quota } = await navigator.storage.estimate();
+        return { usage: usage || 0, quota: quota || 0 };
+      } catch (e) {
+        return { usage: 0, quota: 0 };
+      }
+    }
+    return { usage: 0, quota: 0 };
   }
 
   /* Remove images not referenced by any question (cache cleanup). */
@@ -331,6 +415,84 @@
     orphans.forEach(i => is.delete(i.id));
     await txDone(tx);
     return orphans.length;
+  }
+
+  /* ---------------- recycle bin ----------------
+     Deleted questions + their images are kept in `trash` so they can be
+     restored. Each write below is a single transaction. */
+  async function moveToTrash(question, images, imageIds) {
+    const record = {
+      id: question.id,
+      type: 'question',
+      question: question,
+      images: images || [],
+      deletedAt: Date.now()
+    };
+    if (_memory) {
+      _memory.trash.set(record.id, record);
+      _memory.questions.delete(question.id);
+      (imageIds || []).forEach(id => _memory.images.delete(id));
+      return record;
+    }
+    const tx = _db.transaction(['trash', 'questions', 'images'], 'readwrite');
+    const ts = tx.objectStore('trash'), qs = tx.objectStore('questions'), is = tx.objectStore('images');
+    ts.put(record);
+    qs.delete(question.id);
+    (imageIds || []).forEach(id => is.delete(id));
+    await txDone(tx);
+    return record;
+  }
+
+  async function listTrash() {
+    let records;
+    if (_memory) records = Array.from(_memory.trash.values());
+    else records = await reqDone(_db.transaction('trash', 'readonly').objectStore('trash').getAll()) || [];
+    return records.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+  }
+
+  async function restoreFromTrash(id) {
+    let record;
+    if (_memory) record = _memory.trash.get(id) || null;
+    else record = await reqDone(_db.transaction('trash', 'readonly').objectStore('trash').get(id)) || null;
+    if (!record) return null;
+    const question = record.question;
+    const images = record.images || [];
+    if (_memory) {
+      _memory.questions.set(question.id, question);
+      images.forEach(im => _memory.images.set(im.id, im));
+      _memory.trash.delete(id);
+      return question;
+    }
+    const tx = _db.transaction(['trash', 'questions', 'images'], 'readwrite');
+    const ts = tx.objectStore('trash'), qs = tx.objectStore('questions'), is = tx.objectStore('images');
+    qs.put(question);
+    images.forEach(im => is.put(im));
+    ts.delete(id);
+    await txDone(tx);
+    return question;
+  }
+
+  async function deleteTrashForever(id) {
+    if (_memory) { _memory.trash.delete(id); return; }
+    const tx = _db.transaction('trash', 'readwrite');
+    tx.objectStore('trash').delete(id);
+    await txDone(tx);
+  }
+
+  async function purgeExpiredTrash(days) {
+    days = typeof days === 'number' ? days : 7;
+    const cutoff = Date.now() - days * 86400000;
+    const expired = (await listTrash()).filter(r => (r.deletedAt || 0) < cutoff);
+    if (_memory) {
+      expired.forEach(r => _memory.trash.delete(r.id));
+      return expired.length;
+    }
+    if (!expired.length) return 0;
+    const tx = _db.transaction('trash', 'readwrite');
+    const ts = tx.objectStore('trash');
+    expired.forEach(r => ts.delete(r.id));
+    await txDone(tx);
+    return expired.length;
   }
 
   /* ---------------- demo data (opt-in from empty state) ---------------- */
@@ -402,10 +564,12 @@
     init, isMemory, SCHEMA, DEFAULT_CONFIG,
     getConfig, putConfig,
     getAllQuestions, getQuestion, putQuestion, deleteQuestion,
-    getImage, getAllImages, putImage, deleteImage,
+    getImage, getAllImages, getAllImageThumbs, putImage, deleteImage,
     getPdf, getAllPdfs, putPdf, deletePdf,
     saveQuestionBundle, deleteQuestionBundle,
     bulkImport, undoImport,
-    replaceAll, mergeAll, estimateSize, cleanupOrphanImages, seedDemo
+    replaceAll, mergeAll, estimateSize, cleanupOrphanImages, seedDemo,
+    isQuotaError, requestPersist, persisted, quotaInfo,
+    moveToTrash, listTrash, restoreFromTrash, deleteTrashForever, purgeExpiredTrash
   };
 })(window);
